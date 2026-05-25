@@ -19,7 +19,7 @@ app.post("/scrape", async (req, res) => {
   try {
     const executablePath = await puppeteer.executablePath();
     browser = await puppeteer.launch({
-      headless: false,
+      headless: true,
       executablePath,
       args: [
         "--no-sandbox",
