@@ -22,51 +22,51 @@ const POPULAR_LOCATIONS = [
 ];
 
 export default function App() {
-  const [keyword, setKeyword]         = useState("");
-  const [location, setLocation]       = useState("");
-  const [loading, setLoading]         = useState(false);
-  const [results, setResults]         = useState([]);
-  const [error, setError]             = useState("");
-  const [done, setDone]               = useState(false);
-  const [selected, setSelected]       = useState(null);
-  const [view, setView]               = useState("table");
-  const [page, setPage]               = useState(1);
+  const [keyword, setKeyword] = useState("");
+  const [location, setLocation] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState([]);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [view, setView] = useState("table");
+  const [page, setPage] = useState(1);
   const [filterRating, setFilterRating] = useState(0);
   const [filterHasEmail, setFilterHasEmail] = useState(false);
   const [filterHasPhone, setFilterHasPhone] = useState(false);
   const [filterHasWebsite, setFilterHasWebsite] = useState(false);
   const [filterLocation, setFilterLocation] = useState("");
-  const [sortBy, setSortBy]           = useState("default");
+  const [sortBy, setSortBy] = useState("default");
   const [showKeywordSuggestions, setShowKeywordSuggestions] = useState(false);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const [leafletReady, setLeafletReady] = useState(false);
-  const [limit, setLimit]             = useState(20);
+  const [limit, setLimit] = useState(20);
   const [detectingLocation, setDetectingLocation] = useState(false);
 
-  const mapRef         = useRef(null);
+  const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
-  const markersRef     = useRef([]);
-  const keywordRef     = useRef(null);
-  const locationRef    = useRef(null);
+  const markersRef = useRef([]);
+  const keywordRef = useRef(null);
+  const locationRef = useRef(null);
 
   const query = [keyword.trim(), location.trim()].filter(Boolean).join(" in ");
 
   // ── Filtered + sorted results ───────────────────────────────────────────────
   const filteredResults = useMemo(() => {
     let r = [...results];
-    if (filterRating > 0)   r = r.filter(x => ratingNum(x) >= filterRating);
-    if (filterHasEmail)     r = r.filter(x => x.email);
-    if (filterHasPhone)     r = r.filter(x => x.phone);
-    if (filterHasWebsite)   r = r.filter(x => x.website);
-    if (filterLocation)     r = r.filter(x => (x.address || "").toLowerCase().includes(filterLocation.toLowerCase()));
+    if (filterRating > 0) r = r.filter(x => ratingNum(x) >= filterRating);
+    if (filterHasEmail) r = r.filter(x => x.email);
+    if (filterHasPhone) r = r.filter(x => x.phone);
+    if (filterHasWebsite) r = r.filter(x => x.website);
+    if (filterLocation) r = r.filter(x => (x.address || "").toLowerCase().includes(filterLocation.toLowerCase()));
     if (sortBy === "rating-desc") r.sort((a, b) => (ratingNum(b) || 0) - (ratingNum(a) || 0));
-    if (sortBy === "rating-asc")  r.sort((a, b) => (ratingNum(a) || 0) - (ratingNum(b) || 0));
-    if (sortBy === "name-asc")    r.sort((a, b) => a.name.localeCompare(b.name));
-    if (sortBy === "name-desc")   r.sort((a, b) => b.name.localeCompare(a.name));
+    if (sortBy === "rating-asc") r.sort((a, b) => (ratingNum(a) || 0) - (ratingNum(b) || 0));
+    if (sortBy === "name-asc") r.sort((a, b) => a.name.localeCompare(b.name));
+    if (sortBy === "name-desc") r.sort((a, b) => b.name.localeCompare(a.name));
     return r;
   }, [results, filterRating, filterHasEmail, filterHasPhone, filterHasWebsite, filterLocation, sortBy]);
 
-  const totalPages   = Math.max(1, Math.ceil(filteredResults.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filteredResults.length / ITEMS_PER_PAGE));
   const pagedResults = filteredResults.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   // Reset page when filters change
@@ -129,7 +129,7 @@ export default function App() {
     setError(""); setResults([]); setDone(false); setSelected(null); setPage(1);
     try {
       setLoading(true);
-      const res = await axios.post("http://localhost:5000/scrape", { query, limit });
+      const res = await axios.post("https://map.codeqlik.com/api/scrape", { query, limit });
       const data = res.data.results || [];
       setResults(data);
       setDone(true);
@@ -144,7 +144,7 @@ export default function App() {
   const handleDownloadCSV = async () => {
     if (!filteredResults.length) return;
     try {
-      const res = await axios.post("http://localhost:5000/download-csv", { results: filteredResults }, { responseType: "blob" });
+      const res = await axios.post("https://map.codeqlik.com/api/download-csv", { results: filteredResults }, { responseType: "blob" });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url; a.setAttribute("download", `leads-${query.replace(/ /g, "-")}.csv`);
@@ -180,7 +180,7 @@ export default function App() {
           ${r.address ? `<span style="font-size:11px">📍 ${r.address}</span><br/>` : ""}
           ${r.phone ? `<span style="font-size:11px">📞 ${r.phone}</span><br/>` : ""}
           ${r.email ? `<span style="font-size:11px">✉ ${r.email}</span><br/>` : ""}
-          ${r.website ? `<a href="${r.website.startsWith("http") ? r.website : "https://"+r.website}" target="_blank" style="font-size:11px;color:#ff6b35">🌐 Website</a>` : ""}
+          ${r.website ? `<a href="${r.website.startsWith("http") ? r.website : "https://" + r.website}" target="_blank" style="font-size:11px;color:#ff6b35">🌐 Website</a>` : ""}
         </div>`);
       marker.on("click", () => setSelected(r));
       markersRef.current.push(marker);
@@ -226,8 +226,8 @@ export default function App() {
         <div style={S.brand}>
           <div style={S.brandIcon}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#ff6b35"/>
-              <circle cx="12" cy="9" r="2.5" fill="white"/>
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#ff6b35" />
+              <circle cx="12" cy="9" r="2.5" fill="white" />
             </svg>
           </div>
           <span style={S.brandName}>LeadScraper</span>
@@ -250,8 +250,8 @@ export default function App() {
             <label style={S.label}>Keyword</label>
             <div style={S.inputBox}>
               <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2"/>
-                <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2" />
+                <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
               </svg>
               <input
                 style={S.input}
@@ -271,8 +271,8 @@ export default function App() {
                   .slice(0, 6).map(k => (
                     <div key={k} style={S.suggItem} onMouseDown={() => { setKeyword(k); setShowKeywordSuggestions(false); }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                        <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2"/>
-                        <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"/>
+                        <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2" />
+                        <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
                       </svg>
                       {k}
                     </div>
@@ -286,8 +286,8 @@ export default function App() {
             <label style={S.label}>Location</label>
             <div style={S.inputBox}>
               <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#94a3b8" strokeWidth="2" fill="none"/>
-                <circle cx="12" cy="9" r="2" stroke="#94a3b8" strokeWidth="2" fill="none"/>
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#94a3b8" strokeWidth="2" fill="none" />
+                <circle cx="12" cy="9" r="2" stroke="#94a3b8" strokeWidth="2" fill="none" />
               </svg>
               <input
                 style={{ ...S.input, paddingRight: "40px" }}
@@ -342,7 +342,7 @@ export default function App() {
                   .slice(0, 6).map(l => (
                     <div key={l} style={S.suggItem} onMouseDown={() => { setLocation(l); setShowLocationSuggestions(false); }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="#ff6b35">
-                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
                       </svg>
                       {l}
                     </div>
@@ -507,10 +507,12 @@ export default function App() {
               { label: "With Email", val: filteredResults.filter(r => r.email).length, color: "#34d399" },
               { label: "With Phone", val: filteredResults.filter(r => r.phone).length, color: "#60a5fa" },
               { label: "With Website", val: filteredResults.filter(r => r.website).length, color: "#f59e0b" },
-              { label: "Avg Rating", val: (() => {
-                const rated = filteredResults.filter(r => ratingNum(r));
-                return rated.length ? (rated.reduce((s, r) => s + ratingNum(r), 0) / rated.length).toFixed(1) : "—";
-              })(), color: "#fb923c" },
+              {
+                label: "Avg Rating", val: (() => {
+                  const rated = filteredResults.filter(r => ratingNum(r));
+                  return rated.length ? (rated.reduce((s, r) => s + ratingNum(r), 0) / rated.length).toFixed(1) : "—";
+                })(), color: "#fb923c"
+              },
             ].map(({ label, val, color }) => (
               <div key={label} style={S.statCard} className="stat-card-class">
                 <div style={{ ...S.statVal, color }}>{val}</div>
@@ -554,7 +556,7 @@ export default function App() {
                             <div>
                               <span style={{ color: "#f59e0b", fontWeight: "700" }}>{ratingNum(r)}</span>
                               <div style={{ display: "flex", gap: "1px", marginTop: "2px" }}>
-                                {[1,2,3,4,5].map(s => (
+                                {[1, 2, 3, 4, 5].map(s => (
                                   <span key={s} style={{ color: s <= Math.round(ratingNum(r)) ? "#f59e0b" : "#cbd5e1", fontSize: "10px" }}>★</span>
                                 ))}
                               </div>
@@ -579,9 +581,9 @@ export default function App() {
                         <td style={S.td}>
                           {r.website
                             ? <a href={r.website.startsWith("http") ? r.website : `https://${r.website}`}
-                                target="_blank" rel="noreferrer" style={S.webLink} onClick={e => e.stopPropagation()}>
-                                {r.website.replace(/^https?:\/\/(www\.)?/, "").slice(0, 22)}…
-                              </a>
+                              target="_blank" rel="noreferrer" style={S.webLink} onClick={e => e.stopPropagation()}>
+                              {r.website.replace(/^https?:\/\/(www\.)?/, "").slice(0, 22)}…
+                            </a>
                             : <span style={{ color: "#cbd5e1" }}>—</span>}
                         </td>
                       </tr>
@@ -643,12 +645,12 @@ export default function App() {
                       {ratingNum(r) && <span style={{ color: "#f59e0b", fontSize: "11px" }}>★ {ratingNum(r)}</span>}
                       {r.category && <span style={{ color: "#64748b", fontSize: "11px" }}>{r.category}</span>}
                     </div>
-                    {r.address  && <div style={S.mapCardMeta}>📍 {r.address}</div>}
-                    {r.phone    && <div style={S.mapCardMeta}>📞 {r.phone}</div>}
-                    {r.email    && <div style={{ ...S.mapCardMeta, color: "#059669" }}>✉ {r.email}</div>}
-                    {r.website  && <a href={r.website.startsWith("http") ? r.website : `https://${r.website}`}
-                        target="_blank" rel="noreferrer" style={S.mapCardWeb}
-                        onClick={e => e.stopPropagation()}>🌐 Website ↗</a>}
+                    {r.address && <div style={S.mapCardMeta}>📍 {r.address}</div>}
+                    {r.phone && <div style={S.mapCardMeta}>📞 {r.phone}</div>}
+                    {r.email && <div style={{ ...S.mapCardMeta, color: "#059669" }}>✉ {r.email}</div>}
+                    {r.website && <a href={r.website.startsWith("http") ? r.website : `https://${r.website}`}
+                      target="_blank" rel="noreferrer" style={S.mapCardWeb}
+                      onClick={e => e.stopPropagation()}>🌐 Website ↗</a>}
                     {!r.lat && <div style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px" }}>No coordinates</div>}
                   </div>
                 ))}
