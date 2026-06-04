@@ -1,158 +1,3 @@
-// import { useEffect, useState } from "react";
-// import { getLeads } from "../api/leadsApi";
-
-// export default function Leads({ token }) {
-//     const [leads, setLeads] = useState([]);
-//     const [pagination, setPagination] = useState({
-//         page: 1,
-//         limit: 50,
-//         total: 0,
-//         totalPages: 1,
-//     });
-//     const [loading, setLoading] = useState(false);
-
-//     const loadLeads = async (page = 1) => {
-//         try {
-//             setLoading(true);
-//             const res = await getLeads(token, page, 50);
-//             setLeads(res.data.leads || []);
-//             setPagination(res.data.pagination || pagination);
-//         } catch (err) {
-//             alert(err.response?.data?.message || "Failed to load leads");
-//         } finally {
-//             setLoading(false);
-//         }
-//     };
-
-//     useEffect(() => {
-//         const timer = setTimeout(() => {
-//             loadLeads(1);
-//         }, 0);
-
-//         return () => clearTimeout(timer);
-//     }, []);
-
-//     return (
-//         <div>
-//             <h1 style={S.title}>Leads</h1>
-//             <p style={S.sub}>List of business leads</p>
-//             <div style={S.card}>
-//                 {loading ? (
-//                     <p>Loading leads...</p>
-//                 ) : (
-//                     <>
-//                         <table style={S.table}>
-//                             <thead>
-//                                 <tr>
-//                                     {["#", "Business", "Rating", "Reviews", "Category", "Address", "Phone", "Email", "Website"].map((h) => (
-//                                         <th key={h} style={S.th}>{h}</th>
-//                                     ))}
-//                                 </tr>
-//                             </thead>
-
-//                             <tbody>
-//                                 {leads.map((lead, index) => (
-//                                     <tr key={lead._id}>
-//                                         <td style={S.td}>{(pagination.page - 1) * 50 + index + 1}</td>
-//                                         <td style={S.td}>{lead.name || "—"}</td>
-//                                         <td style={S.td}>{lead.rating || "—"}</td>
-//                                         <td style={S.td}>{lead.reviews || "—"}</td>
-//                                         <td style={S.td}>{lead.category || "—"}</td>
-//                                         <td style={{ ...S.td, maxWidth: "280px" }}>{lead.address || "—"}</td>                                        <td style={S.td}>{lead.phone || "—"}</td>
-//                                         <td style={S.td}>{lead.email || "—"}</td>
-//                                         <td style={S.td}>
-//                                             {lead.website ? (
-//                                                 <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer">
-//                                                     Website
-//                                                 </a>
-//                                             ) : "—"}
-//                                         </td>
-//                                     </tr>
-//                                 ))}
-//                             </tbody>
-//                         </table>
-
-//                         <div style={S.pagination}>
-//                             <button
-//                                 style={S.pageBtn}
-//                                 disabled={pagination.page === 1}
-//                                 onClick={() => loadLeads(pagination.page - 1)}
-//                             >
-//                                 Previous
-//                             </button>
-
-//                             <span style={S.pageText}>
-//                                 Page {pagination.page} of {pagination.totalPages} · Total {pagination.total}
-//                             </span>
-
-//                             <button
-//                                 style={S.pageBtn}
-//                                 disabled={pagination.page === pagination.totalPages}
-//                                 onClick={() => loadLeads(pagination.page + 1)}
-//                             >
-//                                 Next
-//                             </button>
-//                         </div>
-//                     </>
-//                 )}
-//             </div>
-//         </div>
-//     );
-// }
-
-// const S = {
-//     title: { fontSize: "34px", fontWeight: "900", margin: 0, color: "#0f172a" },
-//     sub: { color: "#64748b", marginTop: "6px", marginBottom: "24px" },
-//     card: {
-//         background: "#fff",
-//         border: "1px solid #e2e8f0",
-//         borderRadius: "18px",
-//         padding: "20px",
-//         overflowX: "auto",
-//         maxWidth: "100%",
-//     },
-
-//     table: {
-//         width: "100%",
-//         minWidth: "1150px",
-//         borderCollapse: "collapse",
-//         fontSize: "13px",
-//     },
-
-//     td: {
-//         padding: "12px",
-//         borderBottom: "1px solid #f1f5f9",
-//         color: "#334155",
-//         verticalAlign: "top",
-//         wordBreak: "break-word",
-//     },
-//     th: {
-//         textAlign: "left",
-//         padding: "12px",
-//         background: "#f8fafc",
-//         color: "#64748b",
-//         borderBottom: "1px solid #e2e8f0",
-//         textTransform: "uppercase",
-//         fontSize: "11px",
-//     },
-//     pagination: {
-//         display: "flex",
-//         justifyContent: "space-between",
-//         alignItems: "center",
-//         marginTop: "18px",
-//     },
-//     pageBtn: {
-//         padding: "10px 16px",
-//         border: "1px solid #cbd5e1",
-//         background: "#fff",
-//         borderRadius: "10px",
-//         cursor: "pointer",
-//         fontWeight: "700",
-//     },
-//     pageText: { color: "#64748b", fontSize: "13px" },
-// };
-
-
 import { useEffect, useMemo, useState } from "react";
 import { getLeads } from "../api/leadsApi";
 
@@ -847,67 +692,67 @@ export default function Leads({ token, authUser }) {
                                             const leadId = getLeadId(lead);
 
                                             return (
-                                            <tr key={leadId} className="lead-row" style={{ background: index % 2 === 0 ? "#ffffff" : "#fafbfc" }}>
-                                                {canExportCsv && (
-                                                    <td style={S.td}>
-                                                        <input
-                                                            type="checkbox"
-                                                            className="lead-checkbox"
-                                                            checked={selectedSet.has(leadId)}
-                                                            onChange={() => toggleLeadSelection(leadId)}
-                                                            title="Select lead"
-                                                        />
+                                                <tr key={leadId} className="lead-row" style={{ background: index % 2 === 0 ? "#ffffff" : "#fafbfc" }}>
+                                                    {canExportCsv && (
+                                                        <td style={S.td}>
+                                                            <input
+                                                                type="checkbox"
+                                                                className="lead-checkbox"
+                                                                checked={selectedSet.has(leadId)}
+                                                                onChange={() => toggleLeadSelection(leadId)}
+                                                                title="Select lead"
+                                                            />
+                                                        </td>
+                                                    )}
+                                                    <td style={{ ...S.td, ...S.tdMono, color: "#94a3b8", fontSize: "12px" }}>
+                                                        {(pagination.page - 1) * 50 + leads.findIndex((item) => getLeadId(item) === leadId) + 1}
                                                     </td>
-                                                )}
-                                                <td style={{ ...S.td, ...S.tdMono, color: "#94a3b8", fontSize: "12px" }}>
-                                                    {(pagination.page - 1) * 50 + leads.findIndex((item) => getLeadId(item) === leadId) + 1}
-                                                </td>
-                                                <td style={{ ...S.td, fontWeight: "600", color: "#0f172a", fontSize: "13px" }}>
-                                                    {lead.name || <span style={S.dash}>—</span>}
-                                                </td>
-                                                <td style={S.td}>
-                                                    {lead.rating ? (
-                                                        <span className="rating-badge">
-                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="#f59e0b" stroke="none">
-                                                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                                            </svg>
-                                                            <span style={{ color: "#0f172a" }}>{lead.rating}</span>
-                                                        </span>
-                                                    ) : <span style={S.dash}>—</span>}
-                                                </td>
-                                                <td style={{ ...S.td, color: "#475569", fontSize: "12.5px" }}>
-                                                    {lead.reviews ? lead.reviews.toLocaleString() : <span style={S.dash}>—</span>}
-                                                </td>
-                                                <td style={S.td}>
-                                                    {lead.category
-                                                        ? <span className="category-tag" title={lead.category}>{lead.category}</span>
-                                                        : <span style={S.dash}>—</span>}
-                                                </td>
-                                                <td style={{ ...S.td, color: "#64748b", fontSize: "12px", lineHeight: "1.5" }}>
-                                                    {lead.address || <span style={S.dash}>—</span>}
-                                                </td>
-                                                <td style={{ ...S.td, ...S.tdMono, color: "#334155", fontSize: "11.5px" }}>
-                                                    {lead.phone || <span style={S.dash}>—</span>}
-                                                </td>
-                                                <td style={{ ...S.td, color: "#334155", fontSize: "11.5px" }}>
-                                                    {lead.email
-                                                        ? <a href={`mailto:${lead.email}`} style={S.emailLink}>{lead.email}</a>
-                                                        : <span style={S.dash}>—</span>}
-                                                </td>
-                                                <td style={S.td}>
-                                                    {lead.website ? (
-                                                        <a
-                                                            href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className="website-link"
-                                                            title={lead.website}
-                                                        >
-                                                            {lead.website}
-                                                        </a>
-                                                    ) : <span style={S.dash}>—</span>}
-                                                </td>
-                                            </tr>
+                                                    <td style={{ ...S.td, fontWeight: "600", color: "#0f172a", fontSize: "13px" }}>
+                                                        {lead.name || <span style={S.dash}>—</span>}
+                                                    </td>
+                                                    <td style={S.td}>
+                                                        {lead.rating ? (
+                                                            <span className="rating-badge">
+                                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="#f59e0b" stroke="none">
+                                                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                                                </svg>
+                                                                <span style={{ color: "#0f172a" }}>{lead.rating}</span>
+                                                            </span>
+                                                        ) : <span style={S.dash}>—</span>}
+                                                    </td>
+                                                    <td style={{ ...S.td, color: "#475569", fontSize: "12.5px" }}>
+                                                        {lead.reviews ? lead.reviews.toLocaleString() : <span style={S.dash}>—</span>}
+                                                    </td>
+                                                    <td style={S.td}>
+                                                        {lead.category
+                                                            ? <span className="category-tag" title={lead.category}>{lead.category}</span>
+                                                            : <span style={S.dash}>—</span>}
+                                                    </td>
+                                                    <td style={{ ...S.td, color: "#64748b", fontSize: "12px", lineHeight: "1.5" }}>
+                                                        {lead.address || <span style={S.dash}>—</span>}
+                                                    </td>
+                                                    <td style={{ ...S.td, ...S.tdMono, color: "#334155", fontSize: "11.5px" }}>
+                                                        {lead.phone || <span style={S.dash}>—</span>}
+                                                    </td>
+                                                    <td style={{ ...S.td, color: "#334155", fontSize: "11.5px" }}>
+                                                        {lead.email
+                                                            ? <a href={`mailto:${lead.email}`} style={S.emailLink}>{lead.email}</a>
+                                                            : <span style={S.dash}>—</span>}
+                                                    </td>
+                                                    <td style={S.td}>
+                                                        {lead.website ? (
+                                                            <a
+                                                                href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="website-link"
+                                                                title={lead.website}
+                                                            >
+                                                                {lead.website}
+                                                            </a>
+                                                        ) : <span style={S.dash}>—</span>}
+                                                    </td>
+                                                </tr>
                                             );
                                         })}
                                     </tbody>
