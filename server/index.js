@@ -102,6 +102,7 @@ app.post(
       browser = await puppeteer.launch({
         headless: true,
         executablePath,
+        protocolTimeout: 600000,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
