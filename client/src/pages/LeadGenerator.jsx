@@ -205,7 +205,7 @@ export default function LeadGenerator({ authUser, token }) {
             const marker = window.L.marker([parseFloat(r.lat), parseFloat(r.lng)], { icon }).addTo(map)
                 .bindPopup(`<div style="font-family:sans-serif;min-width:190px;padding:4px">
           <strong style="font-size:13px">${r.name}</strong><br/>
-          ${r.rating ? `<span style="color:#f59e0b;font-size:12px">★ ${ratingNum(r)}</span> ` : ""}
+          ${ratingNum(r) ? `<span style="color:#f59e0b;font-size:12px">★ ${ratingNum(r)}</span> ` : ""}
           ${r.category ? `<span style="color:#888;font-size:11px">${r.category}</span>` : ""}<br/>
           ${r.address ? `<span style="font-size:11px">📍 ${r.address}</span><br/>` : ""}
           ${r.phone ? `<span style="font-size:11px">📞 ${r.phone}</span><br/>` : ""}
@@ -229,7 +229,7 @@ export default function LeadGenerator({ authUser, token }) {
 
 
     return (
-        <div style={S.page}>
+        <div style={S.page} className="lead-generator-page">
             {/* ── Ambient Mesh Glows ── */}
             <div style={{
                 position: "absolute",
@@ -253,7 +253,7 @@ export default function LeadGenerator({ authUser, token }) {
             }} />
 
             {/* ── TOP HEADER ── */}
-            <div style={S.topHeader}>
+            <div style={S.topHeader} className="lead-generator-header">
                 <div style={S.brand}>
                     <div style={S.brandIcon}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -270,22 +270,15 @@ export default function LeadGenerator({ authUser, token }) {
                         </button>
                     )}
 
-                    {/* <div style={S.userBadge}>
-                        {authUser.name} · {authUser.role}
-                    </div>
-
-                    <button style={S.logoutBtn} onClick={handleLogout}>
-                        Logout
-                    </button> */}
                 </div>
             </div>
 
             {/* ── SEARCH PANEL ── */}
-            <div style={S.searchPanel}>
+            <div style={S.searchPanel} className="lead-search-panel">
                 <h2 style={S.searchTitle}>Find Business Leads</h2>
                 <p style={S.searchSub}>Search Google Maps by keyword + location to extract contacts</p>
 
-                <div style={S.searchGrid} id="search-grid">
+                <div style={S.searchGrid} id="search-grid" className="lead-search-grid">
                     {/* Keyword input */}
                     <div style={S.fieldWrap} ref={keywordRef}>
                         <label style={S.label}>Keyword</label>
@@ -465,11 +458,11 @@ export default function LeadGenerator({ authUser, token }) {
 
             {/* ── RESULTS AREA ── */}
             {done && results.length > 0 && (
-                <div style={S.resultsArea}>
+                <div style={S.resultsArea} className="lead-results-area">
 
                     {/* ── FILTER BAR ── */}
-                    <div style={S.filterBar}>
-                        <div style={S.filterLeft}>
+                    <div style={S.filterBar} className="lead-filter-bar">
+                        <div style={S.filterLeft} className="lead-filter-left">
                             <span style={S.filterTitle}>
                                 Filters
                                 {activeFiltersCount > 0 && <span style={S.filterBadge}>{activeFiltersCount}</span>}
@@ -489,7 +482,7 @@ export default function LeadGenerator({ authUser, token }) {
                             </div>
 
                             {/* Checkbox filters */}
-                            <div style={S.checkFilters}>
+                            <div style={S.checkFilters} className="lead-check-filters">
                                 {[
                                     { label: "Has Email", state: filterHasEmail, set: setFilterHasEmail },
                                     { label: "Has Phone", state: filterHasPhone, set: setFilterHasPhone },
@@ -516,7 +509,7 @@ export default function LeadGenerator({ authUser, token }) {
                             </div>
                         </div>
 
-                        <div style={S.filterRight}>
+                        <div style={S.filterRight} className="lead-filter-right">
                             {/* Sort */}
                             <select style={S.sortSelect} value={sortBy} onChange={e => setSortBy(e.target.value)}>
                                 <option value="default">Sort: Default</option>
@@ -541,7 +534,7 @@ export default function LeadGenerator({ authUser, token }) {
                     </div>
 
                     {/* ── STATS ROW ── */}
-                    <div style={S.statsRow}>
+                    <div style={S.statsRow} className="lead-stats-row">
                         {[
                             { label: "Total Found", val: results.length, color: "#ff6b35" },
                             { label: "Filtered", val: filteredResults.length, color: "#818cf8" },
@@ -565,8 +558,8 @@ export default function LeadGenerator({ authUser, token }) {
                     {/* ── TABLE VIEW ── */}
                     {view === "table" && (
                         <>
-                            <div style={S.tableWrap}>
-                                <table style={S.table}>
+                            <div style={S.tableWrap} className="lead-results-table-wrap">
+                                <table style={S.table} className="lead-results-table">
                                     <thead>
                                         <tr>
                                             {["#", "Business", "Rating", "Reviews", "Category", "Address", "Phone", "Email", "Website"].map(h => (
@@ -578,12 +571,12 @@ export default function LeadGenerator({ authUser, token }) {
                                         {pagedResults.length === 0 ? (
                                             <tr><td colSpan={9} style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>No results match filters</td></tr>
                                         ) : pagedResults.map((r, i) => (
-                                            <tr key={i} style={{ ...S.tr, background: selected?.name === r.name ? "#ffece4" : "transparent", cursor: "pointer" }}
+                                            <tr key={i} className="lead-result-row" style={{ ...S.tr, background: selected?.name === r.name ? "#ffece4" : "transparent", cursor: "pointer" }}
                                                 onClick={() => handleRowClick(r)}>
-                                                <td style={{ ...S.td, color: "#94a3b8", fontSize: "11px" }}>
+                                                <td data-label="#" style={{ ...S.td, color: "#94a3b8", fontSize: "11px" }}>
                                                     {(page - 1) * ITEMS_PER_PAGE + i + 1}
                                                 </td>
-                                                <td style={{ ...S.td, ...S.tdName }}>
+                                                <td data-label="Business" style={{ ...S.td, ...S.tdName }}>
                                                     <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
                                                         <span style={S.dot} />
                                                         <div>
@@ -592,7 +585,7 @@ export default function LeadGenerator({ authUser, token }) {
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td style={S.td}>
+                                                <td data-label="Rating" style={S.td}>
                                                     {ratingNum(r) ? (
                                                         <div>
                                                             <span style={{ color: "#f59e0b", fontWeight: "700" }}>{ratingNum(r)}</span>
@@ -604,22 +597,22 @@ export default function LeadGenerator({ authUser, token }) {
                                                         </div>
                                                     ) : <span style={{ color: "#cbd5e1" }}>—</span>}
                                                 </td>
-                                                <td style={{ ...S.td, fontSize: "11px", color: "#64748b" }}>{r.reviews || "—"}</td>
-                                                <td style={S.td}>
+                                                <td data-label="Reviews" style={{ ...S.td, fontSize: "11px", color: "#64748b" }}>{r.reviews || "—"}</td>
+                                                <td data-label="Category" style={S.td}>
                                                     {r.category ? <span style={S.catBadge}>{r.category}</span> : <span style={{ color: "#cbd5e1" }}>—</span>}
                                                 </td>
-                                                <td style={{ ...S.td, fontSize: "12px", maxWidth: "170px", color: "#475569" }}>{r.address || <span style={{ color: "#cbd5e1" }}>—</span>}</td>
-                                                <td style={S.td}>
+                                                <td data-label="Address" style={{ ...S.td, fontSize: "12px", maxWidth: "170px", color: "#475569" }}>{r.address || <span style={{ color: "#cbd5e1" }}>—</span>}</td>
+                                                <td data-label="Phone" style={S.td}>
                                                     {r.phone
                                                         ? <a href={`tel:${r.phone}`} style={S.phoneLink} onClick={e => e.stopPropagation()}>{r.phone}</a>
                                                         : <span style={{ color: "#cbd5e1" }}>—</span>}
                                                 </td>
-                                                <td style={S.td}>
+                                                <td data-label="Email" style={S.td}>
                                                     {r.email
                                                         ? <a href={`mailto:${r.email}`} style={S.emailLink} onClick={e => e.stopPropagation()}>{r.email}</a>
                                                         : <span style={{ color: "#cbd5e1" }}>—</span>}
                                                 </td>
-                                                <td style={S.td}>
+                                                <td data-label="Website" style={S.td}>
                                                     {r.website
                                                         ? <a href={r.website.startsWith("http") ? r.website : `https://${r.website}`}
                                                             target="_blank" rel="noreferrer" style={S.webLink} onClick={e => e.stopPropagation()}>
@@ -635,11 +628,11 @@ export default function LeadGenerator({ authUser, token }) {
 
                             {/* ── PAGINATION ── */}
                             {totalPages > 1 && (
-                                <div style={S.pagination}>
+                                <div style={S.pagination} className="lead-pagination">
                                     <span style={S.pageInfo}>
                                         Showing {(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filteredResults.length)} of {filteredResults.length}
                                     </span>
-                                    <div style={S.pageControls}>
+                                    <div style={S.pageControls} className="lead-page-controls">
                                         <button style={{ ...S.pageBtn, opacity: page === 1 ? 0.3 : 1 }}
                                             onClick={() => setPage(1)} disabled={page === 1}>«</button>
                                         <button style={{ ...S.pageBtn, opacity: page === 1 ? 0.3 : 1 }}
@@ -670,8 +663,8 @@ export default function LeadGenerator({ authUser, token }) {
 
                     {/* ── MAP VIEW ── */}
                     {view === "map" && (
-                        <div style={S.mapLayout}>
-                            <div style={S.mapSidebar}>
+                        <div style={S.mapLayout} className="lead-map-layout">
+                            <div style={S.mapSidebar} className="lead-map-sidebar">
                                 <div style={{ padding: "10px 12px", borderBottom: "1px solid #e2e8f0", fontSize: "11px", color: "#64748b" }}>
                                     {filteredResults.filter(r => r.lat).length} locations on map
                                 </div>
@@ -696,7 +689,7 @@ export default function LeadGenerator({ authUser, token }) {
                                     </div>
                                 ))}
                             </div>
-                            <div style={S.mapContainer}>
+                            <div style={S.mapContainer} className="lead-map-container">
                                 <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
                                 {filteredResults.filter(r => r.lat).length === 0 && (
                                     <div style={S.noMapMsg}>
@@ -714,9 +707,8 @@ export default function LeadGenerator({ authUser, token }) {
             )}
 
             <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #f8fafc; color: #334155; font-family: 'Inter', sans-serif; }
+        body { background: #f8fafc; color: #334155; font-family: var(--sans); }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes progress { 0%{width:4%} 40%{width:60%} 100%{width:88%} }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -774,12 +766,194 @@ export default function LeadGenerator({ authUser, token }) {
             grid-template-columns: 1fr !important;
           }
         }
+
+        @media (max-width: 1280px) {
+          .lead-search-grid {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 130px !important;
+          }
+
+          .lead-search-grid > button {
+            grid-column: 1 / -1;
+            justify-content: center !important;
+            width: 100%;
+          }
+
+          .lead-stats-row {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+          }
+        }
+
+        @media (max-width: 1024px) {
+          .lead-generator-page {
+            padding-bottom: 20px !important;
+          }
+
+          .lead-generator-header {
+            display: none !important;
+          }
+
+          .lead-search-panel {
+            margin: 18px 0 !important;
+            padding: 28px 20px !important;
+            border-radius: 18px !important;
+          }
+
+          .lead-results-area {
+            padding: 0 !important;
+          }
+
+          .lead-generator-header {
+            padding: 16px 18px !important;
+            border-radius: 16px !important;
+            margin-bottom: 16px !important;
+          }
+
+          .lead-filter-bar,
+          .lead-filter-left,
+          .lead-filter-right {
+            align-items: stretch !important;
+            width: 100% !important;
+          }
+
+          .lead-filter-left,
+          .lead-filter-right,
+          .lead-check-filters {
+            gap: 10px !important;
+          }
+
+          .lead-filter-right,
+          .lead-filter-right select,
+          .lead-filter-right button,
+          .lead-filter-right > div {
+            width: 100% !important;
+          }
+
+          .lead-map-layout {
+            flex-direction: column !important;
+            height: 720px !important;
+          }
+
+          .lead-map-sidebar {
+            width: 100% !important;
+            max-height: 230px !important;
+            border-right: none !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+          }
+
+          .lead-map-container {
+            min-height: 420px !important;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .lead-generator-header {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 12px !important;
+          }
+
+          .lead-search-panel {
+            padding: 22px 14px !important;
+            border-radius: 16px !important;
+          }
+
+          .lead-search-panel h2,
+          .lead-search-panel > p {
+            display: none !important;
+          }
+
+          .lead-generator-header button {
+            width: 100% !important;
+          }
+
+          .lead-stats-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 10px !important;
+          }
+
+          .lead-filter-bar {
+            padding: 14px !important;
+            border-radius: 14px !important;
+          }
+
+          .lead-check-filters,
+          .lead-page-controls {
+            flex-wrap: wrap !important;
+          }
+
+          .lead-results-table-wrap {
+            overflow: visible !important;
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+          }
+
+          .lead-results-table,
+          .lead-results-table thead,
+          .lead-results-table tbody,
+          .lead-results-table tr,
+          .lead-results-table th,
+          .lead-results-table td {
+            display: block !important;
+            width: 100% !important;
+          }
+
+          .lead-results-table thead {
+            display: none !important;
+          }
+
+          .lead-result-row {
+            margin-bottom: 12px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 14px !important;
+            background: #ffffff !important;
+            box-shadow: 0 4px 18px rgba(15,23,42,0.04) !important;
+            overflow: hidden !important;
+          }
+
+          .lead-results-table td {
+            display: grid !important;
+            grid-template-columns: 92px minmax(0, 1fr) !important;
+            gap: 12px !important;
+            padding: 10px 14px !important;
+            border-bottom: 1px solid #f1f5f9 !important;
+            max-width: none !important;
+            overflow-wrap: anywhere !important;
+          }
+
+          .lead-results-table td::before {
+            content: attr(data-label);
+            color: #94a3b8;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+          }
+
+          .lead-pagination {
+            justify-content: center !important;
+            text-align: center !important;
+          }
+
+          .lead-page-controls {
+            justify-content: center !important;
+          }
+
+          .lead-map-layout {
+            height: 640px !important;
+          }
+
+          .lead-map-sidebar {
+            max-height: 210px !important;
+          }
+        }
       `}</style>
         </div>
     );
 }
 
 function ratingNum(r) {
+    if (!/(star|rating)/i.test(String(r?.rating || ""))) return null;
     const m = r?.rating?.match(/[\d.]+/);
     return m ? parseFloat(m[0]) : null;
 }

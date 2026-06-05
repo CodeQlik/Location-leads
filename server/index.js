@@ -181,32 +181,28 @@ app.post(
           if (data.name) {
             const dedupeKey = generateDedupeKey(data);
 
-            const savedLead = await Lead.findOneAndUpdate(
-              { dedupeKey },
-              {
-                $set: {
-                  query,
-                  lastScrapedAt: new Date(),
-                },
-                $setOnInsert: {
-                  name: data.name || "",
-                  rating: data.rating || "",
-                  reviews: data.reviews || "",
-                  category: data.category || "",
-                  address: data.address || "",
-                  phone: data.phone || "",
-                  email: data.email || "",
-                  website: data.website || "",
-                  dedupeKey,
-                },
-              },
-              {
-                upsert: true,
-                new: true,
-              }
-            );
+            const existingLead = await Lead.exists({ dedupeKey });
 
-            return res.json({ results: [savedLead] });
+            if (existingLead) {
+              console.log("Duplicate skipped:", data.name);
+              return res.json({ results: [], skippedDuplicates: 1 });
+            }
+
+            const savedLead = await Lead.create({
+              query,
+              name: data.name || "",
+              rating: data.rating || "",
+              reviews: data.reviews || "",
+              category: data.category || "",
+              address: data.address || "",
+              phone: data.phone || "",
+              email: data.email || "",
+              website: data.website || "",
+              dedupeKey,
+              lastScrapedAt: new Date(),
+            });
+
+            return res.json({ results: [savedLead], skippedDuplicates: 0 });
           }
 
           return res.json({ results: [] });
@@ -302,51 +298,70 @@ app.post(
       }
 
       let savedResults = [];
+      let skippedDuplicates = 0;
 
       if (results.length > 0) {
-        const operations = results.map((lead) => {
-          const dedupeKey = generateDedupeKey(lead);
+        const leadsWithKeys = results.map((lead) => ({
+          ...lead,
+          dedupeKey: generateDedupeKey(lead),
+        }));
 
-          return {
-            updateOne: {
-              filter: { dedupeKey },
-              update: {
-                $set: {
-                  query,
-                  lastScrapedAt: new Date(),
-                },
-                $setOnInsert: {
-                  name: lead.name || "",
-                  rating: lead.rating || "",
-                  reviews: lead.reviews || "",
-                  category: lead.category || "",
-                  address: lead.address || "",
-                  phone: lead.phone || "",
-                  email: lead.email || "",
-                  website: lead.website || "",
-                  dedupeKey,
-                },
-              },
-              upsert: true,
-            },
-          };
+        const existingKeys = new Set(
+          (
+            await Lead.find(
+              { dedupeKey: { $in: leadsWithKeys.map((lead) => lead.dedupeKey) } },
+              { dedupeKey: 1, _id: 0 }
+            ).lean()
+          ).map((lead) => lead.dedupeKey)
+        );
+
+        const seenNewKeys = new Set();
+        const newLeads = leadsWithKeys.filter((lead) => {
+          if (existingKeys.has(lead.dedupeKey) || seenNewKeys.has(lead.dedupeKey)) {
+            return false;
+          }
+
+          seenNewKeys.add(lead.dedupeKey);
+          return true;
         });
 
-        await Lead.bulkWrite(operations, { ordered: false });
+        skippedDuplicates = leadsWithKeys.length - newLeads.length;
 
-        savedResults = await Lead.find({
-          dedupeKey: {
-            $in: results.map((lead) => generateDedupeKey(lead)),
-          },
-        }).sort({ lastScrapedAt: -1, createdAt: -1 });
+        if (newLeads.length > 0) {
+          const now = new Date();
+          const documents = newLeads.map((lead) => ({
+            query,
+            name: lead.name || "",
+            rating: lead.rating || "",
+            reviews: lead.reviews || "",
+            category: lead.category || "",
+            address: lead.address || "",
+            phone: lead.phone || "",
+            email: lead.email || "",
+            website: lead.website || "",
+            dedupeKey: lead.dedupeKey,
+            lastScrapedAt: now,
+          }));
+
+          await Lead.insertMany(documents, { ordered: false });
+
+          savedResults = await Lead.find({
+            dedupeKey: {
+              $in: documents.map((lead) => lead.dedupeKey),
+            },
+          }).sort({ lastScrapedAt: -1, createdAt: -1 });
+        }
+
       }
 
       await browser.close();
       browser = null;
 
-      console.log(`\n=== DONE: ${savedResults.length} results returned ===\n`);
+      console.log(
+        `\n=== DONE: ${savedResults.length} new results returned, ${skippedDuplicates} duplicates skipped ===\n`
+      );
 
-      res.json({ results: savedResults });
+      res.json({ results: savedResults, skippedDuplicates });
     } catch (error) {
       console.error("\n=== ERROR ===\n", error.message, "\n", error.stack);
 
@@ -366,8 +381,12 @@ app.post(
 async function scrapePlacePage(page) {
   return page.evaluate(() => {
     const name = document.querySelector("h1")?.innerText?.trim() || "";
-    const ratingEl = document.querySelector('div[role="img"][aria-label]');
-    const rating = ratingEl?.getAttribute("aria-label") || "";
+    const ratingLabel = Array.from(
+      document.querySelectorAll('[aria-label*="star"], [aria-label*="Star"], [aria-label*="rating"], [aria-label*="Rating"]')
+    )
+      .map((el) => el.getAttribute("aria-label") || "")
+      .find((label) => /(?:\d+(?:\.\d+)?)\s*(?:stars?|rating)/i.test(label));
+    const rating = ratingLabel || "";
     const category = document.querySelector(".DkEaL")?.innerText?.trim() || "";
 
     let address = "";

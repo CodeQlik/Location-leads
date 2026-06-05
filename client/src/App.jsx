@@ -7,16 +7,19 @@ import Layout from "./components/Layout";
 
 export default function App() {
   const [authUser, setAuthUser] = useState(() => {
-    const saved = localStorage.getItem("authUser");
+    localStorage.removeItem("authUser");
+    localStorage.removeItem("token");
+
+    const saved = sessionStorage.getItem("authUser");
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [token, setToken] = useState(() => localStorage.getItem("token") || "");
+  const [token, setToken] = useState(() => sessionStorage.getItem("token") || "");
   const [activePage, setActivePage] = useState("leadGenerator");
 
   const handleLoginSuccess = ({ token: loginToken, user }) => {
-    localStorage.setItem("token", loginToken);
-    localStorage.setItem("authUser", JSON.stringify(user));
+    sessionStorage.setItem("token", loginToken);
+    sessionStorage.setItem("authUser", JSON.stringify(user));
 
     setToken(loginToken);
     setAuthUser(user);
@@ -24,6 +27,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("authUser");
     localStorage.removeItem("token");
     localStorage.removeItem("authUser");
 

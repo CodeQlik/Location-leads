@@ -89,8 +89,11 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
 
             await updateUserStatus(token, user._id, !user.isActive);
             setMessage(user.isActive ? "User disabled" : "User enabled");
-
-            await loadUsers();
+            setUsers((current) =>
+                current.map((item) =>
+                    item._id === user._id ? { ...item, isActive: !user.isActive } : item
+                )
+            );
         } catch (err) {
             setError(err.response?.data?.message || "Failed to update user");
         }
@@ -110,7 +113,11 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
 
             await updateUserPermissions(token, user._id, permissions);
             setMessage("Permissions updated");
-            await loadUsers();
+            setUsers((current) =>
+                current.map((item) =>
+                    item._id === user._id ? { ...item, permissions } : item
+                )
+            );
         } catch (err) {
             setError(err.response?.data?.message || "Failed to update permissions");
         }
@@ -135,18 +142,182 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
     };
 
     return (
-        <div style={S.page}>
-            <h1 style={S.title}>Admin Dashboard</h1>
-            <p style={S.sub}>Manage Sales and Marketing users</p>
-            <div style={S.statsGrid}>
+        <div style={S.page} className="admin-page">
+            <style>{`
+                .admin-page * {
+                    box-sizing: border-box;
+                }
+
+                @media (max-width: 1180px) {
+                    .admin-stats-grid {
+                        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                    }
+
+                    .admin-grid {
+                        grid-template-columns: 1fr !important;
+                    }
+
+                    .admin-table-wrap {
+                        overflow-x: auto !important;
+                    }
+
+                    .admin-table {
+                        min-width: 760px;
+                    }
+                }
+
+                @media (max-width: 1024px) {
+                    .admin-page {
+                        padding: 16px 0 18px !important;
+                    }
+
+                    .admin-page-heading {
+                        display: none !important;
+                    }
+
+                    .admin-stats-grid {
+                        grid-template-columns: 1fr 1fr !important;
+                        gap: 10px !important;
+                    }
+
+                    .admin-stat-card {
+                        padding: 14px !important;
+                        border-radius: 14px !important;
+                    }
+
+                    .admin-grid {
+                        gap: 12px !important;
+                    }
+
+                    .admin-card {
+                        padding: 12px 10px !important;
+                        border-radius: 14px !important;
+                        overflow: visible !important;
+                    }
+
+                    .admin-table-wrap {
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        overflow: visible !important;
+                    }
+
+                    .admin-table,
+                    .admin-table thead,
+                    .admin-table tbody,
+                    .admin-table tr,
+                    .admin-table th,
+                    .admin-table td {
+                        display: block !important;
+                        width: 100% !important;
+                        min-width: 0 !important;
+                        max-width: 100% !important;
+                    }
+
+                    .admin-table {
+                        table-layout: auto !important;
+                    }
+
+                    .admin-table thead {
+                        display: none !important;
+                    }
+
+                    .admin-user-row {
+                        margin: 12px 0 0 !important;
+                        border: 1px solid #e2e8f0 !important;
+                        border-radius: 14px !important;
+                        overflow: visible !important;
+                        background: #ffffff !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                    }
+
+                    .admin-table td {
+                        display: grid !important;
+                        grid-template-columns: 108px minmax(0, 1fr) !important;
+                        gap: 8px !important;
+                        padding: 10px 12px !important;
+                        border-bottom: 1px solid #f1f5f9 !important;
+                        overflow-wrap: anywhere !important;
+                        align-items: center !important;
+                        min-width: 0 !important;
+                        max-width: 100% !important;
+                    }
+
+                    .admin-table td::before {
+                        content: attr(data-label);
+                        color: #94a3b8;
+                        font-size: 10px;
+                        font-weight: 800;
+                        letter-spacing: 0.7px;
+                        text-transform: uppercase;
+                        overflow-wrap: normal;
+                    }
+
+                    .admin-permission-menu {
+                        position: static !important;
+                        width: 100% !important;
+                        grid-column: 2 !important;
+                        margin-top: 8px !important;
+                        box-shadow: none !important;
+                    }
+
+                    .admin-permission-button,
+                    .admin-action-button,
+                    .admin-status-badge {
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        min-width: 0 !important;
+                        box-sizing: border-box !important;
+                    }
+
+                    .admin-status-badge {
+                        justify-content: flex-start !important;
+                    }
+
+                    .admin-action-button {
+                        display: inline-flex !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                        overflow: hidden !important;
+                        text-overflow: ellipsis !important;
+                        white-space: nowrap !important;
+                    }
+                }
+
+                @media (max-width: 520px) {
+                    .admin-stats-grid {
+                        grid-template-columns: 1fr !important;
+                    }
+
+                    .admin-table td {
+                        grid-template-columns: 1fr !important;
+                        gap: 6px !important;
+                        padding: 11px 12px !important;
+                        align-items: start !important;
+                    }
+
+                    .admin-table td::before {
+                        white-space: nowrap !important;
+                    }
+
+                    .admin-permission-menu {
+                        grid-column: 1 !important;
+                    }
+                }
+            `}</style>
+            <div className="admin-page-heading">
+                <h1 style={S.title} className="admin-title">Admin Dashboard</h1>
+                <p style={S.sub}>Manage Sales and Marketing users</p>
+            </div>
+            <div style={S.statsGrid} className="admin-stats-grid">
                 <Stat title="Total Users" value={stats.total} />
                 <Stat title="Sales Users" value={stats.sales} />
                 <Stat title="Marketing Users" value={stats.marketing} />
                 <Stat title="Active Users" value={stats.active} />
             </div>
 
-            <div style={S.grid}>
-                <div style={S.card}>
+            <div style={S.grid} className="admin-grid">
+                <div style={S.card} className="admin-card">
                     <h2 style={S.cardTitle}>Create User</h2>
 
                     <input
@@ -206,14 +377,14 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                     </button>
                 </div>
 
-                <div style={S.card}>
+                <div style={S.card} className="admin-card">
                     <h2 style={S.cardTitle}>Users</h2>
 
                     {loading ? (
                         <p style={S.muted}>Loading users...</p>
                     ) : (
-                        <div style={S.tableWrap}>
-                            <table style={S.table}>
+                        <div style={S.tableWrap} className="admin-table-wrap">
+                            <table style={S.table} className="admin-table">
                                 <thead>
                                     <tr>
                                         <th style={S.th}>Name</th>
@@ -228,12 +399,12 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
 
                                 <tbody>
                                     {users.map((user) => (
-                                        <tr key={user._id}>
-                                            <td style={S.td}>{user.name}</td>
-                                            <td style={S.td}>{user.email}</td>
-                                            <td style={S.td}>{user.role}</td>
-                                            <td style={S.td}>{user.department}</td>
-                                            <td style={{ ...S.td, position: "relative" }}>
+                                        <tr key={user._id} className="admin-user-row">
+                                            <td data-label="Name" style={S.td}>{user.name}</td>
+                                            <td data-label="Email" style={S.td}>{user.email}</td>
+                                            <td data-label="Role" style={S.td}>{user.role}</td>
+                                            <td data-label="Department" style={S.td}>{user.department}</td>
+                                            <td data-label="Permissions" style={{ ...S.td, position: "relative" }}>
                                                 {user.role === "admin" ? (
                                                     <span style={S.muted}>All access</span>
                                                 ) : (
@@ -241,6 +412,7 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                                                         <button
                                                             type="button"
                                                             style={S.permissionMenuBtn}
+                                                            className="admin-permission-button"
                                                             onClick={() =>
                                                                 setOpenPermissionsUserId(
                                                                     openPermissionsUserId === user._id ? null : user._id
@@ -252,7 +424,7 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                                                         </button>
 
                                                         {openPermissionsUserId === user._id && (
-                                                            <div style={S.permissionMenu}>
+                                                            <div style={S.permissionMenu} className="admin-permission-menu">
                                                                 <PermissionCheckbox
                                                                     label="Scrape data"
                                                                     checked={user.permissions?.canScrape ?? true}
@@ -273,23 +445,25 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                                                     </>
                                                 )}
                                             </td>
-                                            <td style={S.td}>
+                                            <td data-label="Status" style={S.td}>
                                                 <span
                                                     style={{
                                                         ...S.badge,
                                                         background: user.isActive ? "#dcfce7" : "#fee2e2",
                                                         color: user.isActive ? "#166534" : "#991b1b",
                                                     }}
+                                                    className="admin-status-badge"
                                                 >
                                                     {user.isActive ? "Active" : "Disabled"}
                                                 </span>
                                             </td>
-                                            <td style={S.td}>
+                                            <td data-label="Action" style={S.td}>
                                                 {user.role === "admin" ? (
                                                     <span style={S.muted}>Protected</span>
                                                 ) : (
                                                     <button
                                                         style={S.smallBtn}
+                                                        className="admin-action-button"
                                                         onClick={() => handleToggleStatus(user)}
                                                     >
                                                         {user.isActive ? "Disable" : "Enable"}
@@ -324,7 +498,7 @@ function PermissionCheckbox({ label, checked, onChange }) {
 
 function Stat({ title, value }) {
     return (
-        <div style={S.statCard}>
+        <div style={S.statCard} className="admin-stat-card">
             <div style={S.statValue}>{value}</div>
             <div style={S.statTitle}>{title}</div>
         </div>

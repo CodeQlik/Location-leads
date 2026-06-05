@@ -57,8 +57,13 @@ export default function Leads({ token, authUser }) {
     const getLeadId = (lead) => lead._id || lead.id;
     const ratingValue = (rating) => {
         if (typeof rating === "number") return rating;
+        if (!/(star|rating)/i.test(String(rating || ""))) return 0;
         const match = String(rating || "").match(/[\d.]+/);
         return match ? Number(match[0]) : 0;
+    };
+    const ratingLabel = (rating) => {
+        const value = ratingValue(rating);
+        return value ? String(rating || "").trim() : "";
     };
     const normalize = (value) => String(value || "").toLowerCase();
     const toDateInputValue = (date) => {
@@ -331,10 +336,8 @@ export default function Leads({ token, authUser }) {
     return (
         <div style={S.wrapper}>
             <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
                 .leads-root * {
-                    font-family: 'Plus Jakarta Sans', sans-serif;
+                    font-family: var(--sans);
                     box-sizing: border-box;
                 }
 
@@ -416,11 +419,161 @@ export default function Leads({ token, authUser }) {
                     accent-color: #ff6b35;
                     cursor: pointer;
                 }
+
+                @media (max-width: 1180px) {
+                    .leads-root .responsive-filter-grid {
+                        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+                    }
+
+                    .leads-root .responsive-filter-grid > * {
+                        grid-column: auto !important;
+                    }
+
+                    .leads-table-wrap {
+                        overflow-x: auto !important;
+                    }
+
+                    .leads-table {
+                        min-width: 980px;
+                    }
+                }
+
+                @media (max-width: 1024px) {
+                    .leads-header {
+                        display: none !important;
+                    }
+
+                    .leads-header-stats {
+                        width: 100% !important;
+                    }
+
+                    .leads-header-stats > div {
+                        flex: 1 1 0 !important;
+                    }
+
+                    .leads-root .responsive-filter-grid {
+                        grid-template-columns: 1fr !important;
+                    }
+
+                    .date-calendar-panel {
+                        left: 0 !important;
+                        right: auto !important;
+                        width: min(292px, calc(100vw - 48px)) !important;
+                    }
+
+                    .leads-filter-actions {
+                        align-items: stretch !important;
+                    }
+
+                    .leads-filter-actions label,
+                    .leads-filter-actions button {
+                        flex: 1 1 calc(50% - 8px) !important;
+                    }
+
+                    .leads-export-btn {
+                        margin-left: 0 !important;
+                        flex-basis: 100% !important;
+                    }
+
+                    .leads-table-wrap {
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        overflow: visible !important;
+                    }
+
+                    .leads-table,
+                    .leads-table thead,
+                    .leads-table tbody,
+                    .leads-table tr,
+                    .leads-table th,
+                    .leads-table td {
+                        display: block !important;
+                        width: 100% !important;
+                        min-width: 0 !important;
+                        max-width: 100% !important;
+                    }
+
+                    .leads-table {
+                        min-width: 0 !important;
+                        max-width: 100% !important;
+                        table-layout: auto !important;
+                    }
+
+                    .leads-table thead {
+                        display: none !important;
+                    }
+
+                    .lead-row {
+                        margin: 12px 0 0 !important;
+                        border: 1px solid #e2e8f0 !important;
+                        border-radius: 14px !important;
+                        overflow: hidden !important;
+                        background: #ffffff !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                    }
+
+                    .leads-table td {
+                        display: grid !important;
+                        grid-template-columns: 96px minmax(0, 1fr) !important;
+                        gap: 8px !important;
+                        padding: 10px 12px !important;
+                        border-bottom: 1px solid #f1f5f9 !important;
+                        overflow-wrap: anywhere !important;
+                        word-break: break-word !important;
+                        align-items: center !important;
+                    }
+
+                    .leads-table td::before {
+                        content: attr(data-label);
+                        color: #94a3b8;
+                        font-size: 10px;
+                        font-weight: 800;
+                        letter-spacing: 0.7px;
+                        text-transform: uppercase;
+                        overflow-wrap: normal;
+                    }
+
+                    .website-link,
+                    .category-tag {
+                        max-width: 100% !important;
+                        white-space: normal !important;
+                        overflow-wrap: anywhere !important;
+                    }
+
+                    .leads-pagination {
+                        justify-content: center !important;
+                        text-align: center !important;
+                    }
+
+                    .leads-page-controls {
+                        width: 100% !important;
+                        justify-content: center !important;
+                        flex-wrap: wrap !important;
+                    }
+                }
+
+                @media (max-width: 520px) {
+                    .leads-filter-actions label,
+                    .leads-filter-actions button {
+                        flex-basis: 100% !important;
+                    }
+
+                    .leads-table td {
+                        grid-template-columns: 1fr !important;
+                        gap: 6px !important;
+                        align-items: start !important;
+                    }
+
+                    .leads-table td::before {
+                        white-space: nowrap !important;
+                    }
+                }
             `}</style>
 
             <div className="leads-root" style={{ width: "100%" }}>
                 {/* Header */}
-                <div style={S.header}>
+                <div style={S.header} className="leads-header">
                     <div>
                         <div style={S.titleRow}>
                             <div style={S.titleIcon}>
@@ -441,7 +594,7 @@ export default function Leads({ token, authUser }) {
                     </div>
 
                     {!loading && pagination.total > 0 && (
-                        <div style={S.statsRow}>
+                        <div style={S.statsRow} className="leads-header-stats">
                             <div style={S.statPill}>
                                 <span style={S.statNum}>{pagination.total.toLocaleString()}</span>
                                 <span style={S.statLabel}>Total</span>
@@ -458,7 +611,7 @@ export default function Leads({ token, authUser }) {
                 <div style={S.card}>
                     {!loading && leads.length > 0 && (
                         <div style={S.filterPanel}>
-                            <div style={S.filterGrid}>
+                            <div style={S.filterGrid} className="responsive-filter-grid">
                                 <input
                                     style={{ ...S.filterInput, gridColumn: "span 2" }}
                                     placeholder="Search name, phone, email, website..."
@@ -509,7 +662,7 @@ export default function Leads({ token, authUser }) {
                                     </button>
 
                                     {datePickerOpen && (
-                                        <div style={S.calendarPanel}>
+                                        <div style={S.calendarPanel} className="date-calendar-panel">
                                             <div style={S.calendarHeader}>
                                                 <button type="button" style={S.calendarNavBtn} onClick={() => changeCalendarMonth(-1)}>
                                                     ‹
@@ -565,7 +718,7 @@ export default function Leads({ token, authUser }) {
                                 </div>
                             </div>
 
-                            <div style={S.filterActions}>
+                            <div style={S.filterActions} className="leads-filter-actions">
                                 <label style={S.checkLabel}>
                                     <input
                                         type="checkbox"
@@ -602,6 +755,7 @@ export default function Leads({ token, authUser }) {
                                             opacity: selectedLeads.length === 0 ? 0.45 : 1,
                                             cursor: selectedLeads.length === 0 ? "not-allowed" : "pointer",
                                         }}
+                                        className="leads-export-btn"
                                         onClick={exportSelectedLeads}
                                         disabled={selectedLeads.length === 0}
                                     >
@@ -658,7 +812,7 @@ export default function Leads({ token, authUser }) {
                     ) : (
                         <>
                             <div className="leads-table-wrap">
-                                <table style={S.table}>
+                                <table style={S.table} className="leads-table">
                                     <thead>
                                         <tr>
                                             {[
@@ -694,7 +848,7 @@ export default function Leads({ token, authUser }) {
                                             return (
                                                 <tr key={leadId} className="lead-row" style={{ background: index % 2 === 0 ? "#ffffff" : "#fafbfc" }}>
                                                     {canExportCsv && (
-                                                        <td style={S.td}>
+                                                        <td data-label="Select" style={S.td}>
                                                             <input
                                                                 type="checkbox"
                                                                 className="lead-checkbox"
@@ -704,42 +858,42 @@ export default function Leads({ token, authUser }) {
                                                             />
                                                         </td>
                                                     )}
-                                                    <td style={{ ...S.td, ...S.tdMono, color: "#94a3b8", fontSize: "12px" }}>
+                                                    <td data-label="#" style={{ ...S.td, ...S.tdMono, color: "#94a3b8", fontSize: "12px" }}>
                                                         {(pagination.page - 1) * 50 + leads.findIndex((item) => getLeadId(item) === leadId) + 1}
                                                     </td>
-                                                    <td style={{ ...S.td, fontWeight: "600", color: "#0f172a", fontSize: "13px" }}>
+                                                    <td data-label="Business" style={{ ...S.td, fontWeight: "600", color: "#0f172a", fontSize: "13px" }}>
                                                         {lead.name || <span style={S.dash}>—</span>}
                                                     </td>
-                                                    <td style={S.td}>
-                                                        {lead.rating ? (
+                                                    <td data-label="Rating" style={S.td}>
+                                                        {ratingLabel(lead.rating) ? (
                                                             <span className="rating-badge">
                                                                 <svg width="11" height="11" viewBox="0 0 24 24" fill="#f59e0b" stroke="none">
                                                                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                                                                 </svg>
-                                                                <span style={{ color: "#0f172a" }}>{lead.rating}</span>
+                                                                <span style={{ color: "#0f172a" }}>{ratingLabel(lead.rating)}</span>
                                                             </span>
                                                         ) : <span style={S.dash}>—</span>}
                                                     </td>
-                                                    <td style={{ ...S.td, color: "#475569", fontSize: "12.5px" }}>
+                                                    <td data-label="Reviews" style={{ ...S.td, color: "#475569", fontSize: "12.5px" }}>
                                                         {lead.reviews ? lead.reviews.toLocaleString() : <span style={S.dash}>—</span>}
                                                     </td>
-                                                    <td style={S.td}>
+                                                    <td data-label="Category" style={S.td}>
                                                         {lead.category
                                                             ? <span className="category-tag" title={lead.category}>{lead.category}</span>
                                                             : <span style={S.dash}>—</span>}
                                                     </td>
-                                                    <td style={{ ...S.td, color: "#64748b", fontSize: "12px", lineHeight: "1.5" }}>
+                                                    <td data-label="Address" style={{ ...S.td, color: "#64748b", fontSize: "12px", lineHeight: "1.5" }}>
                                                         {lead.address || <span style={S.dash}>—</span>}
                                                     </td>
-                                                    <td style={{ ...S.td, ...S.tdMono, color: "#334155", fontSize: "11.5px" }}>
+                                                    <td data-label="Phone" style={{ ...S.td, ...S.tdMono, color: "#334155", fontSize: "11.5px" }}>
                                                         {lead.phone || <span style={S.dash}>—</span>}
                                                     </td>
-                                                    <td style={{ ...S.td, color: "#334155", fontSize: "11.5px" }}>
+                                                    <td data-label="Email" style={{ ...S.td, color: "#334155", fontSize: "11.5px" }}>
                                                         {lead.email
                                                             ? <a href={`mailto:${lead.email}`} style={S.emailLink}>{lead.email}</a>
                                                             : <span style={S.dash}>—</span>}
                                                     </td>
-                                                    <td style={S.td}>
+                                                    <td data-label="Website" style={S.td}>
                                                         {lead.website ? (
                                                             <a
                                                                 href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
@@ -760,13 +914,13 @@ export default function Leads({ token, authUser }) {
                             </div>
 
                             {/* Pagination */}
-                            <div style={S.pagination}>
+                            <div style={S.pagination} className="leads-pagination">
                                 <span style={S.pageInfo}>
                                     <strong style={{ color: "#0f172a" }}>{startEntry}–{totalShowing}</strong>
                                     <span style={{ color: "#94a3b8" }}> of {pagination.total.toLocaleString()} leads</span>
                                 </span>
 
-                                <div style={S.pageControls}>
+                                <div style={S.pageControls} className="leads-page-controls">
                                     <button
                                         className="page-btn"
                                         style={S.pageBtn}

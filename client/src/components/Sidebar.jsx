@@ -3,6 +3,8 @@ export default function Sidebar({
     setActivePage,
     authUser,
     handleLogout,
+    isExpanded,
+    setIsExpanded,
 }) {
     const isAdmin = authUser.role === "admin" && authUser.department === "admin";
     const hasPermission = (permission) => isAdmin || (authUser.permissions?.[permission] ?? true);
@@ -58,10 +60,10 @@ export default function Sidebar({
 
     return (
         <>
-            <aside style={S.sidebar}>
+            <aside style={S.sidebar} className={`app-sidebar ${isExpanded ? "is-expanded" : ""}`}>
 
                 {/* Brand */}
-                <div style={S.brand}>
+                <div style={S.brand} className="sidebar-brand">
                     <div style={S.logoMark}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                             <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#ff6b35" />
@@ -72,14 +74,29 @@ export default function Sidebar({
                     <span style={S.logoText}>LeadScraper</span>
                 </div>
 
+                <button
+                    type="button"
+                    style={S.collapseBtn}
+                    className="sidebar-collapse-btn"
+                    onClick={() => setIsExpanded((current) => !current)}
+                    aria-label={isExpanded ? "Close sidebar" : "Open sidebar"}
+                    title={isExpanded ? "Close sidebar" : "Open sidebar"}
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="4" y1="6" x2="20" y2="6" />
+                        <line x1="4" y1="12" x2="20" y2="12" />
+                        <line x1="4" y1="18" x2="20" y2="18" />
+                    </svg>
+                </button>
+
                 {/* Divider */}
-                <div style={S.divider} />
+                <div style={S.divider} className="sidebar-divider" />
 
                 {/* Nav label */}
-                <div style={S.navLabel}>Menu</div>
+                <div style={S.navLabel} className="sidebar-nav-label">Menu</div>
 
                 {/* Nav */}
-                <nav style={S.nav}>
+                <nav style={S.nav} className="sidebar-nav">
                     {navItems.map((item) => {
                         const active = activePage === item.key;
                         return (
@@ -89,25 +106,32 @@ export default function Sidebar({
                                     ...S.navBtn,
                                     ...(active ? S.navBtnActive : {}),
                                 }}
-                                onClick={() => setActivePage(item.key)}
+                                className="sidebar-nav-btn"
+                                onClick={() => {
+                                    setActivePage(item.key);
+                                    setIsExpanded(false);
+                                }}
                             >
                                 <span style={{ ...S.navIcon, color: active ? "#ffffff" : "#64748b" }}>
                                     {item.icon}
                                 </span>
-                                <span style={{ fontSize: "13.5px", letterSpacing: "-0.1px" }}>
+                                <span
+                                    className="sidebar-nav-label-text"
+                                    style={{ fontSize: "13.5px", letterSpacing: "-0.1px" }}
+                                >
                                     {item.label}
                                 </span>
-                                {active && <span style={S.activeDot} />}
+                                {active && <span style={S.activeDot} className="sidebar-active-dot" />}
                             </button>
                         );
                     })}
                 </nav>
 
                 {/* Footer */}
-                <div style={S.footer}>
-                    <div style={S.divider} />
+                <div style={S.footer} className="sidebar-footer">
+                    <div style={S.divider} className="sidebar-divider" />
 
-                    <div style={S.userRow}>
+                    <div style={S.userRow} className="sidebar-user-row">
                         <div style={S.avatar}>{initials}</div>
                         <div style={S.userInfo}>
                             <div style={S.userName}>{authUser.name}</div>
@@ -117,7 +141,11 @@ export default function Sidebar({
 
                     <button
                         style={S.logoutBtn}
-                        onClick={handleLogout}
+                        className="sidebar-logout-btn"
+                        onClick={() => {
+                            setIsExpanded(false);
+                            handleLogout();
+                        }}
                         title="Logout"
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -131,10 +159,8 @@ export default function Sidebar({
             </aside>
 
             <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
                 aside * {
-                    font-family: 'Plus Jakarta Sans', sans-serif;
+                    font-family: var(--sans);
                     box-sizing: border-box;
                 }
 
@@ -146,6 +172,148 @@ export default function Sidebar({
                 .nav-btn-hover:hover {
                     background: #f8fafc !important;
                     color: #0f172a !important;
+                }
+
+                .sidebar-collapse-btn {
+                    display: none !important;
+                }
+
+                @media (max-width: 1024px) {
+                    .app-sidebar {
+                        width: min(270px, calc(100vw - 32px)) !important;
+                        height: 100vh !important;
+                        left: 0 !important;
+                        right: auto !important;
+                        top: 0 !important;
+                        bottom: auto !important;
+                        padding: 14px 10px !important;
+                        background: #ffffff !important;
+                        border-right: none !important;
+                        border-top: none !important;
+                        box-shadow: none !important;
+                        flex-direction: column !important;
+                        align-items: stretch !important;
+                        gap: 10px !important;
+                        overflow-x: hidden !important;
+                        overflow-y: auto !important;
+                        transform: translateX(-110%) !important;
+                        visibility: hidden !important;
+                        transition: transform 0.22s ease, visibility 0.22s ease, box-shadow 0.22s ease !important;
+                    }
+
+                    .app-sidebar.is-expanded {
+                        transform: translateX(0) !important;
+                        visibility: visible !important;
+                        border-right: 1px solid #e2e8f0 !important;
+                        box-shadow: 16px 0 38px rgba(15,23,42,0.16) !important;
+                    }
+
+                    .sidebar-brand {
+                        display: flex !important;
+                        justify-content: flex-start !important;
+                        padding-right: 52px !important;
+                        min-height: 44px !important;
+                        margin-bottom: 4px !important;
+                    }
+
+                    .sidebar-nav-label {
+                        display: block !important;
+                    }
+
+                    .sidebar-user-row,
+                    .sidebar-divider {
+                        display: flex !important;
+                    }
+
+                    .sidebar-collapse-btn {
+                        width: 44px !important;
+                        height: 44px !important;
+                        border: 1px solid #e2e8f0 !important;
+                        border-radius: 12px !important;
+                        background: #ffffff !important;
+                        color: #475569 !important;
+                        display: flex !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                        cursor: pointer !important;
+                        flex: 0 0 44px !important;
+                        position: absolute !important;
+                        top: 14px !important;
+                        right: 10px !important;
+                        z-index: 2 !important;
+                        box-shadow: none !important;
+                    }
+
+                    .sidebar-nav {
+                        flex: 1 1 0 !important;
+                        min-width: 0 !important;
+                        flex-direction: column !important;
+                        align-items: stretch !important;
+                        justify-content: flex-start !important;
+                        gap: 8px !important;
+                    }
+
+                    .sidebar-nav-btn {
+                        width: 100% !important;
+                        min-width: 0 !important;
+                        flex: 0 0 auto !important;
+                        max-width: none !important;
+                        justify-content: flex-start !important;
+                        padding: 11px 14px !important;
+                        gap: 10px !important;
+                        border-radius: 12px !important;
+                    }
+
+                    .sidebar-nav-label-text {
+                        display: inline !important;
+                        white-space: nowrap !important;
+                        font-size: 13px !important;
+                    }
+
+                    .sidebar-active-dot {
+                        display: block !important;
+                    }
+
+                    .sidebar-footer {
+                        flex: 0 0 auto !important;
+                        margin-top: auto !important;
+                        display: flex !important;
+                        flex-direction: column !important;
+                        gap: 10px !important;
+                        min-height: 0 !important;
+                        padding-bottom: max(4px, env(safe-area-inset-bottom)) !important;
+                    }
+
+                    .sidebar-user-row {
+                        padding: 10px 4px 0 !important;
+                        min-width: 0 !important;
+                        align-items: center !important;
+                    }
+
+                    .sidebar-user-row > div:last-child {
+                        min-width: 0 !important;
+                        flex: 1 1 auto !important;
+                    }
+
+                    .sidebar-logout-btn {
+                        width: 100% !important;
+                        min-height: 42px !important;
+                        padding: 9px 14px !important;
+                        margin-top: 0 !important;
+                        justify-content: flex-start !important;
+                        flex: 0 0 auto !important;
+                    }
+
+                    .sidebar-logout-btn span {
+                        display: inline !important;
+                    }
+                }
+
+                @media (max-width: 480px) {
+                    .app-sidebar {
+                        width: min(240px, calc(100vw - 24px)) !important;
+                        padding: 12px 8px !important;
+                    }
                 }
             `}</style>
         </>
@@ -265,6 +433,11 @@ const S = {
     footer: {
         marginTop: "auto",
         paddingTop: "4px",
+    },
+
+    collapseBtn: {
+        border: "none",
+        background: "transparent",
     },
 
     userRow: {

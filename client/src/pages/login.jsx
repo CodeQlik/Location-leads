@@ -90,8 +90,34 @@ export default function Login({ onLoginSuccess }) {
     };
 
     return (
-        <div style={S.page}>
-            <div style={S.loginCard}>
+        <div style={S.page} className="login-page">
+            <style>{`
+                @media (max-width: 480px) {
+                    .login-page {
+                        min-height: 100svh !important;
+                        padding: 18px 12px !important;
+                        align-items: flex-start !important;
+                    }
+
+                    .login-card {
+                        max-width: 100% !important;
+                        padding: 24px 18px !important;
+                        border-radius: 18px !important;
+                        margin-top: 20px !important;
+                    }
+
+                    .login-card h2 {
+                        font-size: 24px !important;
+                    }
+
+                    .login-card input,
+                    .login-card select {
+                        font-size: 16px !important;
+                        touch-action: manipulation;
+                    }
+                }
+            `}</style>
+            <div style={S.loginCard} className="login-card">
                 <div style={S.brand}>
                     <div style={S.brandIcon}>📍</div>
                     <span style={S.brandName}>LeadScraper</span>
@@ -116,6 +142,11 @@ export default function Login({ onLoginSuccess }) {
 
                         <input
                             style={{ ...S.input, paddingLeft: "16px", marginTop: "18px" }}
+                            type="email"
+                            name="email"
+                            inputMode="email"
+                            autoComplete="email"
+                            enterKeyHint="next"
                             placeholder="Email"
                             value={loginForm.email}
                             onChange={(e) =>
@@ -155,6 +186,11 @@ export default function Login({ onLoginSuccess }) {
 
                         <input
                             style={{ ...S.input, paddingLeft: "16px", marginTop: "18px" }}
+                            type="email"
+                            name="forgot-email"
+                            inputMode="email"
+                            autoComplete="email"
+                            enterKeyHint="send"
                             placeholder="Email"
                             value={forgotEmail}
                             onChange={(e) => setForgotEmail(e.target.value)}
