@@ -119,7 +119,7 @@ app.get(["/test", "/api/test"], (req, res) => res.json({
 }));
 
 app.get(
-  "/leads",
+  ["/leads", "/api/leads"],
   auth,
   authorize("admin", "sales", "marketing"),
   requirePermission("canViewLeads"),
@@ -670,7 +670,7 @@ async function scrapePlacePage(page) {
 }
 
 app.post(
-  "/download-csv",
+  ["/download-csv", "/api/download-csv"],
   auth,
   authorize("admin", "sales", "marketing"),
   requirePermission("canExportCsv"),
