@@ -331,7 +331,7 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                         style={S.input}
                         placeholder="Email"
                         value={form.email}
-                        onChange={(e) => setForm({ ...form, email: e.target.value })}
+                        onChange={(e) => setForm({ ...form, email: e.target.value.toLowerCase() })}
                     />
 
                     <input
@@ -401,9 +401,9 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                                     {users.map((user) => (
                                         <tr key={user._id} className="admin-user-row">
                                             <td data-label="Name" style={S.td}>{user.name}</td>
-                                            <td data-label="Email" style={S.td}>{user.email}</td>
-                                            <td data-label="Role" style={S.td}>{user.role}</td>
-                                            <td data-label="Department" style={S.td}>{user.department}</td>
+                                            <td data-label="Email" style={S.td}>{(user.email || "").toLowerCase()}</td>
+                                            <td data-label="Role" style={{ ...S.td, textTransform: "capitalize" }}>{user.role}</td>
+                                            <td data-label="Department" style={{ ...S.td, textTransform: "capitalize" }}>{user.department}</td>
                                             <td data-label="Permissions" style={{ ...S.td, position: "relative" }}>
                                                 {user.role === "admin" ? (
                                                     <span style={S.muted}>All access</span>
@@ -726,7 +726,6 @@ const S = {
         padding: "10px 8px",
         borderBottom: "1px solid #f1f5f9",
         color: "#334155",
-        textTransform: "capitalize",
         wordBreak: "break-word",
     },
 

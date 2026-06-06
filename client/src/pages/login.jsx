@@ -1,7 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
-
-const API_BASE = "https://map.codeqlik.com/api";
+import { API_BASE } from "../config/api";
 
 export default function Login({ onLoginSuccess }) {
     const initialResetToken = new URLSearchParams(window.location.search).get("resetToken") || "";

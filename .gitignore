@@ -1,0 +1,14 @@
+node_modules/
+client/node_modules/
+server/node_modules/
+
+dist/
+client/dist/
+
+.env
+*.env
+*.local
+
+*.log
+debug-screenshot.png
+server/debug-screenshot.png

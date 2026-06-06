@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import axios from "axios";
+import { API_BASE } from "../config/api";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -21,7 +22,8 @@ const POPULAR_LOCATIONS = [
     "Pune", "Chennai", "Kolkata", "Ahmedabad", "Surat",
 ];
 
-const API_BASE = "https://map.codeqlik.com/api";
+const SCRAPE_START_TIMEOUT_MS = 10 * 60 * 1000;
+const SCRAPE_POLL_INTERVAL_MS = 3000;
 
 export default function LeadGenerator({ authUser, token }) {
     const [keyword, setKeyword] = useState("");
@@ -44,6 +46,8 @@ export default function LeadGenerator({ authUser, token }) {
     const [leafletReady, setLeafletReady] = useState(false);
     const [limit, setLimit] = useState(20);
     const [detectingLocation, setDetectingLocation] = useState(false);
+    const [jobProgress, setJobProgress] = useState(0);
+    const [jobMessage, setJobMessage] = useState("");
     const canExportCsv = authUser.role === "admin" && authUser.department === "admin"
         ? true
         : authUser.permissions?.canExportCsv ?? true;
@@ -53,6 +57,7 @@ export default function LeadGenerator({ authUser, token }) {
     const markersRef = useRef([]);
     const keywordRef = useRef(null);
     const locationRef = useRef(null);
+    const activeJobRef = useRef(null);
 
     const query = [keyword.trim(), location.trim()].filter(Boolean).join(" in ");
 
@@ -134,27 +139,61 @@ export default function LeadGenerator({ authUser, token }) {
     const handleSearch = async () => {
         if (!keyword.trim()) { setError("Please enter a keyword"); return; }
         if (!location.trim()) { setError("Please enter a location"); return; }
-        setError(""); setResults([]); setDone(false); setSelected(null); setPage(1);
+        setError(""); setResults([]); setDone(false); setSelected(null); setPage(1); setJobProgress(0); setJobMessage("Starting scrape");
         try {
             setLoading(true);
-            // const res = await axios.post("https://map.codeqlik.com/api/scrape", { query, limit });
             const res = await axios.post(
                 `${API_BASE}/scrape`,
                 { query, limit },
                 {
-                    timeout: 500000,
+                    timeout: SCRAPE_START_TIMEOUT_MS,
                     headers: {
                         Authorization: `Bearer ${token}`,
                     },
                 }
             );
 
-            const data = res.data.results || [];
-            setResults(data);
-            setDone(true);
-            if (data.length === 0) setError("No results found. Try a different query.");
+            const jobId = res.data.jobId;
+            activeJobRef.current = jobId;
+            setJobMessage(res.data.message || "Scrape started");
+
+            while (activeJobRef.current === jobId) {
+                await new Promise((resolve) => setTimeout(resolve, SCRAPE_POLL_INTERVAL_MS));
+
+                const statusRes = await axios.get(`${API_BASE}/scrape/${jobId}`, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+
+                const job = statusRes.data;
+                setJobProgress(job.progress || 0);
+                setJobMessage(job.message || "Scraping leads");
+
+                if (job.status === "completed") {
+                    const data = job.results || [];
+                    setResults(data);
+                    setDone(true);
+                    activeJobRef.current = null;
+                    if (data.length === 0) setError(job.message || "No results found. Try a different query.");
+                    break;
+                }
+
+                if (job.status === "failed") {
+                    activeJobRef.current = null;
+                    throw new Error(job.error || "Scraping failed. Check the server terminal.");
+                }
+            }
         } catch (err) {
-            setError(err.response?.data?.message || "Scraping failed. Check the server terminal.");
+            if (err.response?.data?.message) {
+                setError(err.response.data.message);
+            } else if (err.code === "ECONNABORTED") {
+                setError("The scrape request timed out before the server responded.");
+            } else if (err.message === "Network Error") {
+                setError("Network Error: the API did not return a browser-readable response. Check if the backend is deployed/restarted and whether Cloudflare returned an error.");
+            } else {
+                setError(err.message || "Scraping failed. Check the server terminal.");
+            }
         } finally {
             setLoading(false);
         }
@@ -163,7 +202,6 @@ export default function LeadGenerator({ authUser, token }) {
     const handleDownloadCSV = async () => {
         if (!filteredResults.length) return;
         try {
-            // const res = await axios.post("https://map.codeqlik.com/api/download-csv", { results: filteredResults }, { responseType: "blob" });
             const res = await axios.post(
                 `${API_BASE}/download-csv`,
                 { results: filteredResults },
@@ -407,8 +445,7 @@ export default function LeadGenerator({ authUser, token }) {
                                 <option value={5}>5 leads (Fast)</option>
                                 <option value={10}>10 leads</option>
                                 <option value={20}>20 leads</option>
-                                <option value={50}>50 leads</option>
-                                <option value={100}>100 leads (Deep Scrape)</option>
+                                <option value={30}>30 leads</option>
                             </select>
                             {/* Custom dropdown arrow */}
                             <div style={{
@@ -449,8 +486,13 @@ export default function LeadGenerator({ authUser, token }) {
 
                 {loading && (
                     <div style={S.progressWrap}>
-                        <div style={S.progressBar}><div style={S.progressFill} /></div>
-                        <p style={S.progressText}>Opening Google Maps · Scrolling results · Extracting data... (1–3 min)</p>
+                        <div style={S.progressBar}>
+                            <div style={{ ...S.progressFill, width: `${Math.max(jobProgress, 6)}%` }} />
+                        </div>
+                        <p style={S.progressText}>
+                            {jobMessage || "Opening Google Maps · Scrolling results · Extracting data..."}
+                            {jobProgress > 0 ? ` (${jobProgress}%)` : ""}
+                        </p>
                     </div>
                 )}
                 {error && <div style={S.errorBox}>⚠ {error}</div>}
@@ -710,7 +752,6 @@ export default function LeadGenerator({ authUser, token }) {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #f8fafc; color: #334155; font-family: var(--sans); }
         @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes progress { 0%{width:4%} 40%{width:60%} 100%{width:88%} }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 4px; }
@@ -992,7 +1033,7 @@ const S = {
     queryPreview: { marginTop: "18px", fontSize: "13px", color: "#64748b", padding: "10px 16px", background: "#f1f5f9", borderRadius: "8px", border: "1px solid #e2e8f0", display: "inline-block" },
     progressWrap: { marginTop: "24px" },
     progressBar: { height: "4px", background: "#e2e8f0", borderRadius: "4px", overflow: "hidden" },
-    progressFill: { height: "100%", background: "linear-gradient(90deg, #ff6b35, #ff8c5a, #818cf8)", animation: "progress 4s ease-in-out infinite" },
+    progressFill: { height: "100%", background: "linear-gradient(90deg, #ff6b35, #ff8c5a, #818cf8)", transition: "width 0.35s ease" },
     progressText: { marginTop: "12px", fontSize: "13px", color: "#64748b", textAlign: "center" },
     errorBox: { marginTop: "18px", padding: "12px 16px", background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: "10px", color: "#ef4444", fontSize: "13px" },
 

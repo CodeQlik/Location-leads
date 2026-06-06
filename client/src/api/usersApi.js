@@ -1,6 +1,5 @@
 import axios from "axios";
-
-const API_BASE = "https://map.codeqlik.com/api";
+import { API_BASE } from "../config/api";
 
 export const getUsers = (token) => {
     return axios.get(`${API_BASE}/users`, {
