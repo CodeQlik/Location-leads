@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getLeads } from "../api/leadsApi";
+import { getLeads, exportLeadsCsv } from "../api/leadsApi";
 
 export default function Leads({ token, authUser }) {
     const [leads, setLeads] = useState([]);
@@ -10,6 +10,7 @@ export default function Leads({ token, authUser }) {
         totalPages: 1,
     });
     const [loading, setLoading] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [datePickerOpen, setDatePickerOpen] = useState(false);
     const [calendarMonth, setCalendarMonth] = useState(() => new Date());
@@ -25,34 +26,31 @@ export default function Leads({ token, authUser }) {
         hasEmail: false,
         hasWebsite: false,
     });
+    const PAGE_SIZE = 50;
+
     const canExportCsv = authUser?.role === "admin" && authUser?.department === "admin"
         ? true
         : authUser?.permissions?.canExportCsv ?? true;
 
-    const loadLeads = async (page = 1) => {
-        try {
-            setLoading(true);
-            setSelectedIds([]);
-            const res = await getLeads(token, page, 50);
-            setLeads(res.data.leads || []);
-            setPagination(res.data.pagination || pagination);
-        } catch (err) {
-            alert(err.response?.data?.message || "Failed to load leads");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            loadLeads(1);
-        }, 0);
-        return () => clearTimeout(timer);
-    }, []);
-
-    const totalShowing = Math.min(pagination.page * 50, pagination.total);
-    const startEntry = (pagination.page - 1) * 50 + 1;
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+    const hasActiveFilters = Boolean(
+        filters.search.trim() ||
+        filters.category.trim() ||
+        filters.city.trim() ||
+        filters.minRating ||
+        filters.datePreset ||
+        filters.dateFrom ||
+        filters.dateTo ||
+        filters.hasPhone ||
+        filters.hasEmail ||
+        filters.hasWebsite
+    );
+
+    const totalShowing = pagination.total === 0
+        ? 0
+        : Math.min((pagination.page - 1) * pagination.limit + leads.length, pagination.total);
+    const startEntry = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
 
     const getLeadId = (lead) => lead._id || lead.id;
     const ratingValue = (rating) => {
@@ -65,7 +63,7 @@ export default function Leads({ token, authUser }) {
         const value = ratingValue(rating);
         return value ? String(rating || "").trim() : "";
     };
-    const normalize = (value) => String(value || "").toLowerCase();
+    // const normalize = (value) => String(value || "").toLowerCase();
     const toDateInputValue = (date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -80,13 +78,19 @@ export default function Leads({ token, authUser }) {
             year: "numeric",
         });
     };
+    const parseLocalDate = (value) => {
+        if (value instanceof Date) return new Date(value);
+
+        const [year, month, day] = String(value).split("-").map(Number);
+        return new Date(year, month - 1, day);
+    };
     const startOfDay = (date) => {
-        const d = new Date(date);
+        const d = parseLocalDate(date);
         d.setHours(0, 0, 0, 0);
         return d;
     };
     const endOfDay = (date) => {
-        const d = new Date(date);
+        const d = parseLocalDate(date);
         d.setHours(23, 59, 59, 999);
         return d;
     };
@@ -120,50 +124,98 @@ export default function Leads({ token, authUser }) {
         return {};
     };
 
-    const filteredLeads = useMemo(() => {
-        const search = normalize(filters.search);
-        const category = normalize(filters.category);
-        const city = normalize(filters.city);
-        const minRating = filters.minRating ? Number(filters.minRating) : 0;
+    const getDateQueryParams = () => {
         const presetRange = getPresetRange(filters.datePreset);
-        const dateFrom = filters.dateFrom ? startOfDay(filters.dateFrom) : presetRange.from;
-        const dateTo = filters.dateTo ? endOfDay(filters.dateTo) : presetRange.to;
 
-        return leads.filter((lead) => {
-            const searchable = [
-                lead.name,
-                lead.category,
-                lead.address,
-                lead.phone,
-                lead.email,
-                lead.website,
-                lead.rating,
-                lead.reviews,
-            ].map(normalize).join(" ");
+        const fromDate = filters.dateFrom
+            ? startOfDay(filters.dateFrom)
+            : presetRange.from;
 
-            if (search && !searchable.includes(search)) return false;
-            if (category && !normalize(lead.category).includes(category)) return false;
-            if (city && !normalize(lead.address).includes(city)) return false;
-            if (minRating && ratingValue(lead.rating) < minRating) return false;
-            if (dateFrom || dateTo) {
-                const scrapeDate = lead.lastScrapedAt || lead.createdAt;
-                const scrapedAt = scrapeDate ? new Date(scrapeDate) : null;
+        const toDate = filters.dateTo
+            ? endOfDay(filters.dateTo)
+            : filters.dateFrom
+                ? endOfDay(filters.dateFrom)
+                : presetRange.to;
 
-                if (!scrapedAt || Number.isNaN(scrapedAt.getTime())) return false;
-                if (dateFrom && scrapedAt < dateFrom) return false;
-                if (dateTo && scrapedAt > dateTo) return false;
-            }
-            if (filters.hasPhone && !lead.phone) return false;
-            if (filters.hasEmail && !lead.email) return false;
-            if (filters.hasWebsite && !lead.website) return false;
+        return {
+            dateFrom: fromDate ? fromDate.toISOString() : "",
+            dateTo: toDate ? toDate.toISOString() : "",
+        };
+    };
 
-            return true;
-        });
-    }, [leads, filters]);
+    const getLeadQueryParams = () => ({
+        ...getDateQueryParams(),
+        search: filters.search.trim(),
+        category: filters.category.trim(),
+        city: filters.city.trim(),
+        minRating: filters.minRating,
+        hasPhone: filters.hasPhone,
+        hasEmail: filters.hasEmail,
+        hasWebsite: filters.hasWebsite,
+    });
+
+    const loadLeads = async (page = 1) => {
+        try {
+            setLoading(true);
+            setSelectedIds([]);
+
+            const res = await getLeads(token, page, PAGE_SIZE, getLeadQueryParams());
+
+            setLeads(res.data.leads || []);
+            setPagination(res.data.pagination || {
+                page,
+                limit: PAGE_SIZE,
+                total: 0,
+                totalPages: 1,
+            });
+        } catch (err) {
+            console.error("Failed to load leads:", err);
+            alert(err.response?.data?.message || "Failed to load leads");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            loadLeads(1);
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [
+        token,
+        filters.search,
+        filters.category,
+        filters.city,
+        filters.minRating,
+        filters.datePreset,
+        filters.dateFrom,
+        filters.dateTo,
+        filters.hasPhone,
+        filters.hasEmail,
+        filters.hasWebsite,
+    ]);
+
+    // Filtering is now done by MongoDB before pagination.
+    // Keep this variable so the existing table/rendering code can stay unchanged.
+    const filteredLeads = leads;
 
     const visibleIds = filteredLeads.map(getLeadId).filter(Boolean);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedSet.has(id));
     const selectedLeads = leads.filter((lead) => selectedSet.has(getLeadId(lead)));
+
+    const exportCount = selectedLeads.length > 0
+        ? selectedLeads.length
+        : hasActiveFilters
+            ? pagination.total
+            : 0;
+
+    const exportButtonDisabled = exporting ||
+        (selectedLeads.length === 0 && (!hasActiveFilters || pagination.total === 0));
+
+    const exportButtonLabel = exporting
+        ? "Exporting..."
+        : `Export CSV (${exportCount.toLocaleString()})`;
 
     const updateFilter = (key, value) => {
         setFilters((current) => ({ ...current, [key]: value }));
@@ -249,7 +301,7 @@ export default function Leads({ token, authUser }) {
         }
 
         if (filters.dateFrom) {
-            return `${formatDisplayDate(filters.dateFrom)} - Select end`;
+            return formatDisplayDate(filters.dateFrom);
         }
 
         return "Any scrape date";
@@ -331,6 +383,48 @@ export default function Leads({ token, authUser }) {
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
+    };
+
+    const exportFilteredLeads = async () => {
+        if (!hasActiveFilters || pagination.total === 0) return;
+
+        try {
+            setExporting(true);
+
+            const res = await exportLeadsCsv(token, getLeadQueryParams());
+            const blob = new Blob([res.data], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+
+            const safeDateLabel = dateRangeLabel()
+                .replace(/\s+/g, "-")
+                .replace(/[^a-zA-Z0-9-_]/g, "")
+                .toLowerCase();
+
+            link.href = url;
+            link.download = `filtered-leads-${safeDateLabel || "filters"}-${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Failed to export leads:", err);
+            alert(err.response?.data?.message || "Failed to export leads");
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    const handleExportCsv = () => {
+        if (selectedLeads.length > 0) {
+            exportSelectedLeads();
+            return;
+        }
+
+        if (hasActiveFilters && pagination.total > 0) {
+            exportFilteredLeads();
+        }
     };
 
     return (
@@ -609,7 +703,7 @@ export default function Leads({ token, authUser }) {
 
                 {/* Card */}
                 <div style={S.card}>
-                    {!loading && leads.length > 0 && (
+                    {!loading && (leads.length > 0 || hasActiveFilters) && (
                         <div style={S.filterPanel}>
                             <div style={S.filterGrid} className="responsive-filter-grid">
                                 <input
@@ -752,20 +846,27 @@ export default function Leads({ token, authUser }) {
                                     <button
                                         style={{
                                             ...S.exportBtn,
-                                            opacity: selectedLeads.length === 0 ? 0.45 : 1,
-                                            cursor: selectedLeads.length === 0 ? "not-allowed" : "pointer",
+                                            opacity: exportButtonDisabled ? 0.45 : 1,
+                                            cursor: exportButtonDisabled ? "not-allowed" : "pointer",
                                         }}
                                         className="leads-export-btn"
-                                        onClick={exportSelectedLeads}
-                                        disabled={selectedLeads.length === 0}
+                                        onClick={handleExportCsv}
+                                        disabled={exportButtonDisabled}
+                                        title={
+                                            selectedLeads.length > 0
+                                                ? "Export selected leads"
+                                                : hasActiveFilters
+                                                    ? "Export all leads matching the current filters"
+                                                    : "Select leads first, or apply filters to export all matching leads"
+                                        }
                                     >
-                                        Export CSV ({selectedLeads.length})
+                                        {exportButtonLabel}
                                     </button>
                                 )}
                             </div>
 
                             <div style={S.filterMeta}>
-                                Showing {filteredLeads.length} of {leads.length} leads on this page
+                                Showing {leads.length} of {pagination.total.toLocaleString()} matching leads
                             </div>
                         </div>
                     )}
@@ -795,8 +896,8 @@ export default function Leads({ token, authUser }) {
                                     <rect x="9" y="3" width="6" height="4" rx="1" />
                                 </svg>
                             </div>
-                            <p style={{ margin: 0, color: "#94a3b8", fontWeight: "600", fontSize: "14px" }}>No leads found</p>
-                            <p style={{ margin: "4px 0 0", color: "#cbd5e1", fontSize: "13px" }}>Generate leads using the Lead Generator</p>
+                            <p style={{ margin: 0, color: "#94a3b8", fontWeight: "600", fontSize: "14px" }}>{hasActiveFilters ? "No leads match these filters" : "No leads found"}</p>
+                            <p style={{ margin: "4px 0 0", color: "#cbd5e1", fontSize: "13px" }}>{hasActiveFilters ? "Clear filters or try a broader search" : "Generate leads using the Lead Generator"}</p>
                         </div>
                     ) : filteredLeads.length === 0 ? (
                         <div style={S.emptyState}>
@@ -859,7 +960,7 @@ export default function Leads({ token, authUser }) {
                                                         </td>
                                                     )}
                                                     <td data-label="#" style={{ ...S.td, ...S.tdMono, color: "#94a3b8", fontSize: "12px" }}>
-                                                        {(pagination.page - 1) * 50 + leads.findIndex((item) => getLeadId(item) === leadId) + 1}
+                                                        {(pagination.page - 1) * pagination.limit + leads.findIndex((item) => getLeadId(item) === leadId) + 1}
                                                     </td>
                                                     <td data-label="Business" style={{ ...S.td, fontWeight: "600", color: "#0f172a", fontSize: "13px" }}>
                                                         {lead.name || <span style={S.dash}>—</span>}

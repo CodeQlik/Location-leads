@@ -15,13 +15,20 @@ connectDB();
 
 const app = express();
 
+app.set("etag", false);
+
 app.use((req, res, next) => {
   const origin = req.headers.origin || "*";
 
-  res.header("Access-Control-Allow-Origin", origin);
-  res.header("Vary", "Origin");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    req.headers["access-control-request-headers"] ||
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.setHeader("Access-Control-Max-Age", "86400");
 
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
@@ -33,7 +40,7 @@ app.use((req, res, next) => {
 const corsOptions = {
   origin: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"],
   credentials: false,
   optionsSuccessStatus: 204,
 };
@@ -118,6 +125,113 @@ app.get(["/test", "/api/test"], (req, res) => res.json({
   timestamp: new Date().toISOString(),
 }));
 
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildLeadsQuery(queryParams) {
+  const and = [];
+
+  const search = String(queryParams.search || "").trim();
+  const category = String(queryParams.category || "").trim();
+  const city = String(queryParams.city || "").trim();
+  const minRating = String(queryParams.minRating || "").trim();
+  const hasPhone = String(queryParams.hasPhone || "").toLowerCase() === "true";
+  const hasEmail = String(queryParams.hasEmail || "").toLowerCase() === "true";
+  const hasWebsite = String(queryParams.hasWebsite || "").toLowerCase() === "true";
+
+  if (search) {
+    const regex = new RegExp(escapeRegex(search), "i");
+
+    and.push({
+      $or: [
+        { name: regex },
+        { category: regex },
+        { address: regex },
+        { phone: regex },
+        { email: regex },
+        { website: regex },
+        { rating: regex },
+        { reviews: regex },
+        { query: regex },
+      ],
+    });
+  }
+
+  if (category) {
+    and.push({ category: new RegExp(escapeRegex(category), "i") });
+  }
+
+  if (city) {
+    and.push({ address: new RegExp(escapeRegex(city), "i") });
+  }
+
+  if (minRating) {
+    let ratingRegex = null;
+
+    if (minRating === "3") {
+      ratingRegex = /^([3-5](\.\d+)?)/;
+    } else if (minRating === "4") {
+      ratingRegex = /^([4-5](\.\d+)?)/;
+    } else if (minRating === "4.5") {
+      ratingRegex = /^(4\.[5-9]|5(\.0)?)/;
+    }
+
+    if (ratingRegex) {
+      and.push({ rating: ratingRegex });
+    }
+  }
+
+  if (hasPhone) {
+    and.push({ phone: { $exists: true, $nin: [null, ""] } });
+  }
+
+  if (hasEmail) {
+    and.push({ email: { $exists: true, $nin: [null, ""] } });
+  }
+
+  if (hasWebsite) {
+    and.push({ website: { $exists: true, $nin: [null, ""] } });
+  }
+
+  if (queryParams.dateFrom || queryParams.dateTo) {
+    const effectiveDate = { $ifNull: ["$lastScrapedAt", "$createdAt"] };
+    const dateConditions = [];
+
+    if (queryParams.dateFrom) {
+      const fromDate = new Date(queryParams.dateFrom);
+
+      if (Number.isNaN(fromDate.getTime())) {
+        const error = new Error("Invalid dateFrom");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      dateConditions.push({ $gte: [effectiveDate, fromDate] });
+    }
+
+    if (queryParams.dateTo) {
+      const toDate = new Date(queryParams.dateTo);
+
+      if (Number.isNaN(toDate.getTime())) {
+        const error = new Error("Invalid dateTo");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      dateConditions.push({ $lte: [effectiveDate, toDate] });
+    }
+
+    if (dateConditions.length === 1) {
+      and.push({ $expr: dateConditions[0] });
+    } else if (dateConditions.length > 1) {
+      and.push({ $expr: { $and: dateConditions } });
+    }
+  }
+
+  return and.length ? { $and: and } : {};
+}
+
 app.get(
   ["/leads", "/api/leads"],
   auth,
@@ -125,27 +239,129 @@ app.get(
   requirePermission("canViewLeads"),
   async (req, res) => {
     try {
-      const page = parseInt(req.query.page, 10) || 1;
-      const limit = parseInt(req.query.limit, 10) || 50;
+      res.set({
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Surrogate-Control": "no-store",
+      });
+
+      const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+      const requestedLimit = parseInt(req.query.limit, 10) || 50;
+      const limit = Math.min(Math.max(requestedLimit, 1), 500);
       const skip = (page - 1) * limit;
 
+      // Important: build MongoDB query from filters first.
+      // Pagination is applied only after MongoDB has matched filtered leads.
+      const query = buildLeadsQuery(req.query);
+
+      console.log("LEADS DB QUERY:", {
+        page,
+        limit,
+        filters: {
+          search: req.query.search || "",
+          category: req.query.category || "",
+          city: req.query.city || "",
+          minRating: req.query.minRating || "",
+          dateFrom: req.query.dateFrom || "",
+          dateTo: req.query.dateTo || "",
+          hasPhone: req.query.hasPhone || "",
+          hasEmail: req.query.hasEmail || "",
+          hasWebsite: req.query.hasWebsite || "",
+        },
+        query: JSON.stringify(query),
+      });
+
       const [leads, total] = await Promise.all([
-        Lead.find().sort({ lastScrapedAt: -1, createdAt: -1 }).skip(skip).limit(limit),
-        Lead.countDocuments(),
+        Lead.find(query)
+          .sort({ lastScrapedAt: -1, createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+
+        Lead.countDocuments(query),
       ]);
 
-      res.json({
+      res.status(200).json({
         leads,
         pagination: {
           page,
           limit,
           total,
-          totalPages: Math.ceil(total / limit),
+          totalPages: Math.max(Math.ceil(total / limit), 1),
         },
       });
     } catch (err) {
       console.error("Fetch leads error:", err.message);
-      res.status(500).json({ message: "Failed to fetch leads" });
+      res.status(err.statusCode || 500).json({ message: err.message || "Failed to fetch leads" });
+    }
+  }
+);
+
+app.get(
+  ["/leads/export", "/api/leads/export"],
+  auth,
+  authorize("admin", "sales", "marketing"),
+  requirePermission("canExportCsv"),
+  async (req, res) => {
+    try {
+      res.set({
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Surrogate-Control": "no-store",
+      });
+
+      const query = buildLeadsQuery(req.query);
+
+      console.log("LEADS EXPORT DB QUERY:", {
+        filters: {
+          search: req.query.search || "",
+          category: req.query.category || "",
+          city: req.query.city || "",
+          minRating: req.query.minRating || "",
+          dateFrom: req.query.dateFrom || "",
+          dateTo: req.query.dateTo || "",
+          hasPhone: req.query.hasPhone || "",
+          hasEmail: req.query.hasEmail || "",
+          hasWebsite: req.query.hasWebsite || "",
+        },
+        query: JSON.stringify(query),
+      });
+
+      const leads = await Lead.find(query)
+        .sort({ lastScrapedAt: -1, createdAt: -1 })
+        .lean();
+
+      const fields = [
+        { label: "Business", value: "name" },
+        { label: "Search Query", value: "query" },
+        { label: "Rating", value: "rating" },
+        { label: "Reviews", value: "reviews" },
+        { label: "Category", value: "category" },
+        { label: "Address", value: "address" },
+        { label: "Phone", value: "phone" },
+        { label: "Email", value: "email" },
+        { label: "Website", value: "website" },
+        {
+          label: "Scraped Date",
+          value: (row) => {
+            const dateValue = row.lastScrapedAt || row.createdAt;
+            return dateValue ? new Date(dateValue).toLocaleString("en-IN") : "";
+          },
+        },
+      ];
+
+      const json2csv = new Parser({ fields });
+      const csv = json2csv.parse(leads);
+      const today = new Date().toISOString().slice(0, 10);
+
+      res.header("Content-Type", "text/csv; charset=utf-8");
+      res.attachment(`filtered-leads-${today}.csv`);
+      res.send(`\uFEFF${csv}`);
+    } catch (err) {
+      console.error("Export leads error:", err.message);
+      res.status(err.statusCode || 500).json({ message: err.message || "Failed to export leads" });
     }
   }
 );
@@ -214,30 +430,30 @@ app.post(
 );
 
 function startScrapeHandler(req, res) {
-    const { query } = req.body;
-    const limit = parseInt(req.body.limit, 10) || 10;
+  const { query } = req.body;
+  const limit = parseInt(req.body.limit, 10) || 10;
 
-    if (!query) {
-      return res.status(400).json({ message: "Query is required" });
-    }
+  if (!query) {
+    return res.status(400).json({ message: "Query is required" });
+  }
 
-    const job = createScrapeJob(query, limit);
-    const responseBody = JSON.stringify({
-      jobId: job.id,
-      status: job.status,
-      message: "Scrape started",
-    });
+  const job = createScrapeJob(query, limit);
+  const responseBody = JSON.stringify({
+    jobId: job.id,
+    status: job.status,
+    message: "Scrape started",
+  });
 
-    startScrapeJobAfterResponse(res, job.id);
+  startScrapeJobAfterResponse(res, job.id);
 
-    res.status(202);
-    res.set({
-      "Cache-Control": "no-store",
-      "Content-Type": "application/json",
-      "Content-Length": Buffer.byteLength(responseBody),
-      "Connection": "close",
-    });
-    res.end(responseBody);
+  res.status(202);
+  res.set({
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(responseBody),
+    "Connection": "close",
+  });
+  res.end(responseBody);
 }
 
 app.get(
