@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import axios from "axios";
 import { API_BASE } from "../config/api";
+import { io } from "socket.io-client";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -157,16 +158,17 @@ export default function LeadGenerator({ authUser, token }) {
             activeJobRef.current = jobId;
             setJobMessage(res.data.message || "Scrape started");
 
-            while (activeJobRef.current === jobId) {
-                await new Promise((resolve) => setTimeout(resolve, SCRAPE_POLL_INTERVAL_MS));
+            // Extract base URL for socket connection (e.g. http://localhost:7002 from http://localhost:7002/api)
+            const socketUrl = API_BASE.replace(/\/api\/?$/, "");
+            const socket = io(socketUrl);
 
-                const statusRes = await axios.get(`${API_BASE}/scrape/${jobId}`, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                });
+            socket.on("connect", () => {
+                console.log("Connected to socket for live updates");
+            });
 
-                const job = statusRes.data;
+            socket.on(`scrape_update_${jobId}`, (job) => {
+                if (activeJobRef.current !== jobId) return;
+                
                 setJobProgress(job.progress || 0);
                 setJobMessage(job.message || "Scraping leads");
 
@@ -174,17 +176,26 @@ export default function LeadGenerator({ authUser, token }) {
                     const data = job.results || [];
                     setResults(data);
                     setDone(true);
+                    setLoading(false);
                     activeJobRef.current = null;
+                    socket.disconnect();
                     if (data.length === 0) setError(job.message || "No results found. Try a different query.");
-                    break;
                 }
 
                 if (job.status === "failed") {
+                    setLoading(false);
                     activeJobRef.current = null;
-                    throw new Error(job.error || "Scraping failed. Check the server terminal.");
+                    socket.disconnect();
+                    setError(job.error || "Scraping failed. Check the server terminal.");
                 }
-            }
+            });
+
+            socket.on("connect_error", (err) => {
+                 console.error("Socket connection error:", err);
+            });
+
         } catch (err) {
+            setLoading(false);
             if (err.response?.data?.message) {
                 setError(err.response.data.message);
             } else if (err.code === "ECONNABORTED") {
@@ -194,8 +205,6 @@ export default function LeadGenerator({ authUser, token }) {
             } else {
                 setError(err.message || "Scraping failed. Check the server terminal.");
             }
-        } finally {
-            setLoading(false);
         }
     };
 

@@ -10,10 +10,26 @@ require("dotenv").config();
 
 const connectDB = require("./config/database");
 const Lead = require("./models/Lead");
+const http = require("http");
+const { Server } = require("socket.io");
 
 connectDB();
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on("connection", (socket) => {
+  console.log("A client connected via socket.io:", socket.id);
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
+});
 
 app.set("etag", false);
 
@@ -83,6 +99,9 @@ function updateScrapeJob(id, changes) {
   if (!job) return;
 
   Object.assign(job, changes, { updatedAt: new Date() });
+  
+  // Emit real-time update to all connected clients
+  io.emit(`scrape_update_${id}`, job);
 }
 
 function startScrapeJobAfterResponse(res, jobId) {
@@ -917,7 +936,7 @@ app.post(
   }
 );
 
-const server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 
