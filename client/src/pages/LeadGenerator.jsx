@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import axios from "axios";
 import { API_BASE } from "../config/api";
+import LocationSelector from "../components/LocationSelector";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -12,14 +13,9 @@ const PIN_SVG = (color = "#ff6b35") => `
 `;
 
 const SUGGESTED_KEYWORDS = [
-    "software companies", "IT companies", "restaurants", "hotels",
+    "eyewears", "software companies", "IT companies", "restaurants", "hotels",
     "hospitals", "law firms", "real estate agencies", "marketing agencies",
     "schools", "gyms", "dental clinics", "CA firms",
-];
-
-const POPULAR_LOCATIONS = [
-    "Jaipur", "Delhi", "Mumbai", "Bangalore", "Hyderabad",
-    "Pune", "Chennai", "Kolkata", "Ahmedabad", "Surat",
 ];
 
 const SCRAPE_START_TIMEOUT_MS = 10 * 60 * 1000;
@@ -42,10 +38,8 @@ export default function LeadGenerator({ authUser, token }) {
     const [filterLocation, setFilterLocation] = useState("");
     const [sortBy, setSortBy] = useState("default");
     const [showKeywordSuggestions, setShowKeywordSuggestions] = useState(false);
-    const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
     const [leafletReady, setLeafletReady] = useState(false);
     const [limit, setLimit] = useState(20);
-    const [detectingLocation, setDetectingLocation] = useState(false);
     const [jobProgress, setJobProgress] = useState(0);
     const [jobMessage, setJobMessage] = useState("");
     const canExportCsv = authUser.role === "admin" && authUser.department === "admin"
@@ -101,41 +95,6 @@ export default function LeadGenerator({ authUser, token }) {
 
     // ── Handlers ────────────────────────────────────────────────────────────────
 
-
-    const detectLocation = () => {
-        if (!navigator.geolocation) {
-            alert("Geolocation is not supported by your browser");
-            return;
-        }
-        setDetectingLocation(true);
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                try {
-                    const { latitude, longitude } = position.coords;
-                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-                    const data = await res.json();
-                    const city = data.address?.city || data.address?.town || data.address?.village || data.address?.suburb || data.address?.state || "";
-                    if (city) {
-                        setLocation(city);
-                    } else {
-                        setLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-                    }
-                } catch (err) {
-                    console.error("Error reverse geocoding:", err);
-                    setLocation(`${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`);
-                } finally {
-                    setDetectingLocation(false);
-                }
-            },
-            (error) => {
-                console.error("Geolocation error:", error);
-                alert("Could not detect your location. Please type it manually.");
-                setDetectingLocation(false);
-            },
-            { enableHighAccuracy: true, timeout: 20000 }
-        );
-    };
-
     const handleSearch = async () => {
         if (!keyword.trim()) { setError("Please enter a keyword"); return; }
         if (!location.trim()) { setError("Please enter a location"); return; }
@@ -157,34 +116,52 @@ export default function LeadGenerator({ authUser, token }) {
             activeJobRef.current = jobId;
             setJobMessage(res.data.message || "Scrape started");
 
-            while (activeJobRef.current === jobId) {
-                await new Promise((resolve) => setTimeout(resolve, SCRAPE_POLL_INTERVAL_MS));
+            const pollJob = async () => {
+                if (activeJobRef.current !== jobId) return;
 
-                const statusRes = await axios.get(`${API_BASE}/scrape/${jobId}`, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                });
+                try {
+                    const pollRes = await axios.get(`${API_BASE}/scrape/${jobId}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    const job = pollRes.data;
 
-                const job = statusRes.data;
-                setJobProgress(job.progress || 0);
-                setJobMessage(job.message || "Scraping leads");
+                    setJobProgress(job.progress || 0);
+                    setJobMessage(job.message || "Scraping leads");
 
-                if (job.status === "completed") {
-                    const data = job.results || [];
-                    setResults(data);
-                    setDone(true);
+                    if (job.status === "completed") {
+                        const data = job.results || [];
+                        setResults(data);
+                        setDone(true);
+                        setLoading(false);
+                        activeJobRef.current = null;
+                        if (data.length === 0) setError(job.message || "No results found. Try a different query.");
+                        return;
+                    }
+
+                    if (job.status === "failed") {
+                        setLoading(false);
+                        activeJobRef.current = null;
+                        setError(job.error || "Scraping failed. Check the server terminal.");
+                        return;
+                    }
+
+                    // Continue polling
+                    setTimeout(pollJob, SCRAPE_POLL_INTERVAL_MS);
+                } catch (pollErr) {
+                    console.error("Polling error:", pollErr);
+                    // If polling fails (e.g., 500 error), we stop to avoid infinite loops, but we could retry.
+                    // For now, let's just show an error.
+                    setLoading(false);
                     activeJobRef.current = null;
-                    if (data.length === 0) setError(job.message || "No results found. Try a different query.");
-                    break;
+                    setError("Lost connection to server while checking scrape progress.");
                 }
+            };
 
-                if (job.status === "failed") {
-                    activeJobRef.current = null;
-                    throw new Error(job.error || "Scraping failed. Check the server terminal.");
-                }
-            }
+            // Start polling
+            setTimeout(pollJob, SCRAPE_POLL_INTERVAL_MS);
+
         } catch (err) {
+            setLoading(false);
             if (err.response?.data?.message) {
                 setError(err.response.data.message);
             } else if (err.code === "ECONNABORTED") {
@@ -194,8 +171,6 @@ export default function LeadGenerator({ authUser, token }) {
             } else {
                 setError(err.message || "Scraping failed. Check the server terminal.");
             }
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -317,12 +292,21 @@ export default function LeadGenerator({ authUser, token }) {
                 <p style={S.searchSub}>Search Google Maps by keyword + location to extract contacts</p>
 
                 <div style={S.searchGrid} id="search-grid" className="lead-search-grid">
-                    {/* Keyword input */}
-                    <div style={S.fieldWrap} ref={keywordRef}>
-                        <label style={S.label}>Keyword</label>
-                        <div style={S.inputBox}>
-                            <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2" />
+                    {/* Location input - Full width top row */}
+                    <div style={{ ...S.fieldWrap, width: "100%" }} ref={locationRef}>
+                        <label style={S.label}>Location</label>
+                        <div style={{ marginTop: "4px", width: "100%" }}>
+                            <LocationSelector token={token} onLocationChange={setLocation} />
+                        </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "16px", alignItems: "flex-end", flexWrap: "wrap", width: "100%" }}>
+                        {/* Keyword input */}
+                        <div style={{ ...S.fieldWrap, flex: 1 }} ref={keywordRef}>
+                            <label style={S.label}>Keyword</label>
+                            <div style={S.inputBox}>
+                                <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                    <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2" />
                                 <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
                             </svg>
                             <input
@@ -351,82 +335,12 @@ export default function LeadGenerator({ authUser, token }) {
                                     ))}
                             </div>
                         )}
-                    </div>
-
-                    {/* Location input */}
-                    <div style={S.fieldWrap} ref={locationRef}>
-                        <label style={S.label}>Location</label>
-                        <div style={S.inputBox}>
-                            <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#94a3b8" strokeWidth="2" fill="none" />
-                                <circle cx="12" cy="9" r="2" stroke="#94a3b8" strokeWidth="2" fill="none" />
-                            </svg>
-                            <input
-                                style={{ ...S.input, paddingRight: "40px" }}
-                                className="premium-input"
-                                placeholder="e.g. Jaipur"
-                                value={location}
-                                onChange={e => { setLocation(e.target.value); setShowLocationSuggestions(true); }}
-                                onFocus={() => setShowLocationSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowLocationSuggestions(false), 150)}
-                                onKeyDown={e => e.key === "Enter" && handleSearch()}
-                                disabled={loading}
-                            />
-                            <button
-                                type="button"
-                                className="detect-btn"
-                                style={{
-                                    position: "absolute",
-                                    right: "12px",
-                                    top: "50%",
-                                    transform: "translateY(-50%)",
-                                    background: "transparent",
-                                    border: "none",
-                                    cursor: detectingLocation || loading ? "not-allowed" : "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    padding: "4px",
-                                    color: detectingLocation ? "#ff6b35" : "#64748b",
-                                    transition: "color 0.2s",
-                                }}
-                                onClick={detectLocation}
-                                disabled={detectingLocation || loading}
-                                title="Detect current location"
-                            >
-                                {detectingLocation ? (
-                                    <span style={{ ...S.spinner, width: "14px", height: "14px", border: "2px solid rgba(255,107,53,0.3)", borderTop: "2px solid #ff6b35" }} />
-                                ) : (
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <circle cx="12" cy="12" r="10" />
-                                        <circle cx="12" cy="12" r="3" />
-                                        <line x1="12" y1="1" x2="12" y2="3" />
-                                        <line x1="12" y1="21" x2="12" y2="23" />
-                                        <line x1="1" y1="12" x2="3" y2="12" />
-                                        <line x1="21" y1="12" x2="23" y2="12" />
-                                    </svg>
-                                )}
-                            </button>
                         </div>
-                        {showLocationSuggestions && (
-                            <div style={S.suggestions}>
-                                {POPULAR_LOCATIONS.filter(l => l.toLowerCase().includes(location.toLowerCase()) && l.toLowerCase() !== location.toLowerCase())
-                                    .slice(0, 6).map(l => (
-                                        <div key={l} style={S.suggItem} onMouseDown={() => { setLocation(l); setShowLocationSuggestions(false); }}>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="#ff6b35">
-                                                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
-                                            </svg>
-                                            {l}
-                                        </div>
-                                    ))}
-                            </div>
-                        )}
-                    </div>
 
-                    {/* Limit input */}
-                    <div style={S.fieldWrap}>
-                        <label style={S.label}>Max Results</label>
-                        <div style={S.inputBox}>
+                        {/* Limit input */}
+                        <div style={{ ...S.fieldWrap, width: "140px" }}>
+                            <label style={S.label}>Max Results</label>
+                            <div style={S.inputBox}>
                             <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <line x1="8" y1="6" x2="21" y2="6"></line>
                                 <line x1="8" y1="12" x2="21" y2="12"></line>
@@ -446,6 +360,10 @@ export default function LeadGenerator({ authUser, token }) {
                                 <option value={10}>10 leads</option>
                                 <option value={20}>20 leads</option>
                                 <option value={30}>30 leads</option>
+                                <option value={50}>50 leads</option>
+                                <option value={100}>100 leads</option>
+                                <option value={200}>200 leads</option>
+                                <option value={500}>500 leads</option>
                             </select>
                             {/* Custom dropdown arrow */}
                             <div style={{
@@ -465,15 +383,16 @@ export default function LeadGenerator({ authUser, token }) {
                         </div>
                     </div>
 
-                    {/* Search button */}
-                    <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-                        <button
-                            style={{ ...S.searchBtn, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}
-                            className="search-btn-class"
-                            onClick={handleSearch} disabled={loading}
-                        >
-                            {loading ? <><span style={S.spinner} /> Scraping...</> : "🔍 Search"}
-                        </button>
+                        {/* Search button */}
+                        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "42px" }}>
+                            <button
+                                style={{ ...S.searchBtn, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer", height: "100%" }}
+                                className="search-btn-class"
+                                onClick={handleSearch} disabled={loading}
+                            >
+                                {loading ? <><span style={S.spinner} /> Scraping...</> : "🔍 Search"}
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -1019,7 +938,7 @@ const S = {
     searchPanel: { maxWidth: "1560px", margin: "40px auto", padding: "40px 32px", background: "rgba(255, 255, 255, 0.75)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255, 255, 255, 0.6)", borderRadius: "24px", boxShadow: "0 20px 40px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255,255,255,0.8)", position: "relative", zIndex: 5 },
     searchTitle: { fontSize: "36px", fontWeight: "800", color: "#0f172a", letterSpacing: "-0.8px", marginBottom: "8px", fontFamily: "'Outfit', sans-serif", textAlign: "center" },
     searchSub: { fontSize: "15px", color: "#64748b", marginBottom: "36px", fontFamily: "'Inter', sans-serif", textAlign: "center" },
-    searchGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 130px auto", gap: "16px", alignItems: "end" },
+    searchGrid: { display: "flex", flexDirection: "column", gap: "16px", alignItems: "flex-start", width: "100%" },
     fieldWrap: { position: "relative" },
     label: { display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "1px" },
     inputBox: { position: "relative" },

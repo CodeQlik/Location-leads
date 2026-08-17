@@ -707,25 +707,25 @@ export default function Leads({ token, authUser }) {
                         <div style={S.filterPanel}>
                             <div style={S.filterGrid} className="responsive-filter-grid">
                                 <input
-                                    style={{ ...S.filterInput, gridColumn: "span 2" }}
-                                    placeholder="Search name, phone, email, website..."
+                                    style={{ ...S.filterInput, flex: 1, minWidth: "200px" }}
+                                    placeholder="🔍 Search name, phone, email, website..."
                                     value={filters.search}
                                     onChange={(e) => updateFilter("search", e.target.value)}
                                 />
                                 <input
-                                    style={S.filterInput}
+                                    style={{ ...S.filterInput, width: "160px" }}
                                     placeholder="Category"
                                     value={filters.category}
                                     onChange={(e) => updateFilter("category", e.target.value)}
                                 />
                                 <input
-                                    style={S.filterInput}
+                                    style={{ ...S.filterInput, width: "160px" }}
                                     placeholder="City / address"
                                     value={filters.city}
                                     onChange={(e) => updateFilter("city", e.target.value)}
                                 />
                                 <select
-                                    style={S.filterInput}
+                                    style={{ ...S.filterInput, width: "140px" }}
                                     value={filters.minRating}
                                     onChange={(e) => updateFilter("minRating", e.target.value)}
                                 >
@@ -734,29 +734,41 @@ export default function Leads({ token, authUser }) {
                                     <option value="4">4+ stars</option>
                                     <option value="4.5">4.5+ stars</option>
                                 </select>
-                                <select
-                                    style={S.filterInput}
-                                    value={filters.datePreset}
-                                    onChange={(e) => updateDatePreset(e.target.value)}
-                                >
-                                    <option value="">Any scrape date</option>
-                                    <option value="today">Today</option>
-                                    <option value="yesterday">Yesterday</option>
-                                    <option value="last7">Last 7 days</option>
-                                    <option value="last30">Last 30 days</option>
-                                </select>
-                                <div style={{ ...S.dateRangeWrap, gridColumn: "span 2" }}>
+                                <div style={{ ...S.dateRangeWrap, minWidth: "220px" }}>
                                     <button
                                         type="button"
                                         style={S.dateRangeBtn}
                                         onClick={() => setDatePickerOpen((open) => !open)}
                                     >
-                                        {dateRangeLabel()}
+                                        📅 {dateRangeLabel()}
                                         <span style={S.dateChevron}>⌄</span>
                                     </button>
 
                                     {datePickerOpen && (
                                         <div style={S.calendarPanel} className="date-calendar-panel">
+                                            {/* Presets injected into the popover directly */}
+                                            <div style={{ display: "flex", gap: "8px", padding: "12px", borderBottom: "1px solid #f1f5f9", flexWrap: "wrap" }}>
+                                                {[{ label: "Any time", val: "" }, { label: "Today", val: "today" }, { label: "Yesterday", val: "yesterday" }, { label: "7 Days", val: "last7" }, { label: "30 Days", val: "last30" }].map(p => (
+                                                    <button
+                                                        key={p.val}
+                                                        type="button"
+                                                        style={{
+                                                            padding: "6px 12px",
+                                                            borderRadius: "6px",
+                                                            fontSize: "12px",
+                                                            fontWeight: "600",
+                                                            cursor: "pointer",
+                                                            border: filters.datePreset === p.val && !filters.dateFrom ? "1px solid #ff6b35" : "1px solid #e2e8f0",
+                                                            background: filters.datePreset === p.val && !filters.dateFrom ? "#fff7f4" : "#f8fafc",
+                                                            color: filters.datePreset === p.val && !filters.dateFrom ? "#ff6b35" : "#475569",
+                                                        }}
+                                                        onClick={() => updateDatePreset(p.val)}
+                                                    >
+                                                        {p.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+
                                             <div style={S.calendarHeader}>
                                                 <button type="button" style={S.calendarNavBtn} onClick={() => changeCalendarMonth(-1)}>
                                                     ‹
@@ -813,35 +825,40 @@ export default function Leads({ token, authUser }) {
                             </div>
 
                             <div style={S.filterActions} className="leads-filter-actions">
-                                <label style={S.checkLabel}>
-                                    <input
-                                        type="checkbox"
-                                        className="lead-checkbox"
-                                        checked={filters.hasPhone}
-                                        onChange={(e) => updateFilter("hasPhone", e.target.checked)}
-                                    />
-                                    Phone
-                                </label>
-                                <label style={S.checkLabel}>
-                                    <input
-                                        type="checkbox"
-                                        className="lead-checkbox"
-                                        checked={filters.hasEmail}
-                                        onChange={(e) => updateFilter("hasEmail", e.target.checked)}
-                                    />
-                                    Email
-                                </label>
-                                <label style={S.checkLabel}>
-                                    <input
-                                        type="checkbox"
-                                        className="lead-checkbox"
-                                        checked={filters.hasWebsite}
-                                        onChange={(e) => updateFilter("hasWebsite", e.target.checked)}
-                                    />
-                                    Website
-                                </label>
-
-                                <button style={S.lightBtn} onClick={clearFilters}>Clear</button>
+                                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <label style={filters.hasPhone ? S.activeCheckLabel : S.checkLabel}>
+                                        <input
+                                            type="checkbox"
+                                            className="lead-checkbox"
+                                            checked={filters.hasPhone}
+                                            onChange={(e) => updateFilter("hasPhone", e.target.checked)}
+                                            style={{ display: "none" }}
+                                        />
+                                        📞 Phone
+                                    </label>
+                                    <label style={filters.hasEmail ? S.activeCheckLabel : S.checkLabel}>
+                                        <input
+                                            type="checkbox"
+                                            className="lead-checkbox"
+                                            checked={filters.hasEmail}
+                                            onChange={(e) => updateFilter("hasEmail", e.target.checked)}
+                                            style={{ display: "none" }}
+                                        />
+                                        ✉️ Email
+                                    </label>
+                                    <label style={filters.hasWebsite ? S.activeCheckLabel : S.checkLabel}>
+                                        <input
+                                            type="checkbox"
+                                            className="lead-checkbox"
+                                            checked={filters.hasWebsite}
+                                            onChange={(e) => updateFilter("hasWebsite", e.target.checked)}
+                                            style={{ display: "none" }}
+                                        />
+                                        🌐 Website
+                                    </label>
+                                </div>
+                                <div style={{ display: "flex", gap: "12px", marginLeft: "auto" }}>
+                                    <button style={S.lightBtn} onClick={clearFilters}>Clear Filters</button>
                                 {canExportCsv && (
                                     <button
                                         style={{
@@ -864,8 +881,9 @@ export default function Leads({ token, authUser }) {
                                     </button>
                                 )}
                             </div>
+                        </div>
 
-                            <div style={S.filterMeta}>
+                        <div style={S.filterMeta}>
                                 Showing {leads.length} of {pagination.total.toLocaleString()} matching leads
                             </div>
                         </div>
@@ -1332,7 +1350,28 @@ const S = {
         fontSize: "12px",
         fontWeight: "600",
         cursor: "pointer",
+        padding: "6px 12px",
+        background: "#f1f5f9",
+        border: "1px solid #e2e8f0",
+        borderRadius: "20px",
         fontFamily: "'Plus Jakarta Sans', sans-serif",
+        transition: "all 0.2s ease",
+    },
+
+    activeCheckLabel: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        color: "#ff6b35",
+        fontSize: "12px",
+        fontWeight: "700",
+        cursor: "pointer",
+        padding: "6px 12px",
+        background: "#fff7f4",
+        border: "1px solid #ff6b35",
+        borderRadius: "20px",
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        transition: "all 0.2s ease",
     },
 
     lightBtn: {

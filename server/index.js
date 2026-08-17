@@ -5,6 +5,7 @@ const { Parser } = require("json2csv");
 const authRoutes = require("./routes/auth");
 const { auth, authorize, requirePermission } = require("./middleware/auth");
 const usersRoutes = require("./routes/users");
+const areasRoutes = require("./routes/areas");
 
 require("dotenv").config();
 
@@ -49,10 +50,16 @@ app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 app.use(express.json());
 
+const locationsRoutes = require("./routes/locations");
+
 app.use("/auth", authRoutes);
 app.use("/users", usersRoutes);
+app.use("/areas", areasRoutes);
+app.use("/locations", locationsRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/areas", areasRoutes);
+app.use("/api/locations", locationsRoutes);
 
 const PORT = process.env.PORT || 7002;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
@@ -499,11 +506,8 @@ async function runScrapeJob(jobId) {
   updateScrapeJob(jobId, { status: "running", progress: 5, message: "Opening Google Maps" });
 
   try {
-    const executablePath = await puppeteer.executablePath();
-
     browser = await puppeteer.launch({
       headless: true,
-      executablePath,
       protocolTimeout: FIVE_HOURS_MS,
       args: [
         "--no-sandbox",
@@ -516,15 +520,27 @@ async function runScrapeJob(jobId) {
       defaultViewport: null,
     });
 
-    const page = await browser.newPage();
-    page.setDefaultTimeout(FIVE_HOURS_MS);
-    page.setDefaultNavigationTimeout(FIVE_HOURS_MS);
+    async function configurePage(p) {
+      await p.setRequestInterception(true);
+      p.on('request', (req) => {
+        const resourceType = req.resourceType();
+        if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+      p.setDefaultTimeout(FIVE_HOURS_MS);
+      p.setDefaultNavigationTimeout(FIVE_HOURS_MS);
+      await p.setViewport({ width: 1920, height: 1080 });
+      await p.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
+      await p.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      );
+    }
 
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    );
+    const page = await browser.newPage();
+    await configurePage(page);
 
     const mapsUrl = `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
 
@@ -635,7 +651,7 @@ async function runScrapeJob(jobId) {
     if (scrollableDiv) {
       let lastCount = 0;
       let sameCount = 0;
-      const maxScrolls = limit >= 30 ? 60 : 40;
+      const maxScrolls = limit >= 200 ? 200 : (limit >= 100 ? 100 : (limit >= 50 ? 80 : 40));
 
       for (let i = 0; i < maxScrolls; i++) {
         await page.evaluate(() => {
@@ -691,28 +707,46 @@ async function runScrapeJob(jobId) {
     const results = [];
     const selectedLinks = links.slice(0, limit);
 
-    for (const [index, link] of selectedLinks.entries()) {
-      try {
-        updateScrapeJob(jobId, {
-          progress: Math.min(90, 45 + Math.round((index / Math.max(selectedLinks.length, 1)) * 45)),
-          message: `Scraping lead ${index + 1}/${selectedLinks.length}`,
-        });
+    const CONCURRENCY_LIMIT = 4;
 
-        await page.goto(link, {
-          waitUntil: "domcontentloaded",
-          timeout: FIVE_HOURS_MS,
-        });
+    for (let i = 0; i < selectedLinks.length; i += CONCURRENCY_LIMIT) {
+      const chunk = selectedLinks.slice(i, i + CONCURRENCY_LIMIT);
+      
+      updateScrapeJob(jobId, {
+        progress: Math.min(90, 45 + Math.round((i / Math.max(selectedLinks.length, 1)) * 45)),
+        message: `Scraping leads ${i + 1} to ${Math.min(i + CONCURRENCY_LIMIT, selectedLinks.length)} of ${selectedLinks.length}`,
+      });
 
-        await new Promise((r) => setTimeout(r, 3000));
-
-        const data = await scrapePlacePage(page);
-
-        if (data.name) {
-          results.push(data);
-          console.log("✓ Scraped:", data.name);
+      const promises = chunk.map(async (link) => {
+        let newPage = null;
+        try {
+          newPage = await browser.newPage();
+          await configurePage(newPage);
+          
+          await newPage.goto(link, {
+            waitUntil: "domcontentloaded",
+            timeout: FIVE_HOURS_MS,
+          });
+          
+          await new Promise((r) => setTimeout(r, 1500));
+          
+          const data = await scrapePlacePage(newPage);
+          
+          if (data.name) {
+            console.log("✓ Scraped:", data.name);
+            return data;
+          }
+        } catch (err) {
+          console.log("  ✗ Error:", err.message);
+        } finally {
+          if (newPage) await newPage.close().catch(() => {});
         }
-      } catch (err) {
-        console.log("  ✗ Error:", err.message);
+        return null;
+      });
+
+      const chunkResults = await Promise.all(promises);
+      for (const res of chunkResults) {
+        if (res) results.push(res);
       }
     }
 
