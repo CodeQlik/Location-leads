@@ -211,7 +211,7 @@ function buildLeadsQuery(queryParams, reqUser) {
 
   const isAdmin = reqUser?.role === "admin" && reqUser?.department === "admin";
   if (!isAdmin) {
-    and.push({ userId: reqUser?._id });
+    and.push({ userId: reqUser?.id });
   } else if (queryParams.userId) {
     and.push({ userId: queryParams.userId });
   }
@@ -521,7 +521,7 @@ function startScrapeHandler(req, res) {
     return res.status(400).json({ message: "Query is required" });
   }
 
-  const job = createScrapeJob(query, limit, req.user?._id);
+  const job = createScrapeJob(query, limit, req.user?.id);
   const responseBody = JSON.stringify({
     jobId: job.id,
     status: job.status,
