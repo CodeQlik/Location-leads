@@ -101,7 +101,7 @@ export default function App() {
 
         {canAccessPage("leads") && (
           <div style={{ display: page === "leads" ? "block" : "none" }}>
-            <Leads token={token} authUser={authUser} />
+            <Leads token={token} authUser={authUser} activePage={activePage} />
           </div>
         )}
 

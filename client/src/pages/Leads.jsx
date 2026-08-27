@@ -1,8 +1,79 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { getLeads, exportLeadsCsv } from "../api/leadsApi";
 import { getUsers } from "../api/usersApi";
 
-export default function Leads({ token, authUser }) {
+const getLeadId = (lead) => lead._id || lead.id;
+const ratingValue = (rating) => {
+    if (typeof rating === "number") return rating;
+    if (!/(star|rating)/i.test(String(rating || ""))) return 0;
+    const match = String(rating || "").match(/[\d.]+/);
+    return match ? Number(match[0]) : 0;
+};
+const ratingLabel = (rating) => {
+    const value = ratingValue(rating);
+    return value ? String(rating || "").trim() : "";
+};
+const toDateInputValue = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+};
+const formatDisplayDate = (value) => {
+    if (!value) return "";
+    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+    });
+};
+const parseLocalDate = (value) => {
+    if (value instanceof Date) return new Date(value);
+
+    const [year, month, day] = String(value).split("-").map(Number);
+    return new Date(year, month - 1, day);
+};
+const startOfDay = (date) => {
+    const d = parseLocalDate(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+const endOfDay = (date) => {
+    const d = parseLocalDate(date);
+    d.setHours(23, 59, 59, 999);
+    return d;
+};
+const getPresetRange = (preset) => {
+    if (!preset) return {};
+
+    const today = new Date();
+
+    if (preset === "today") {
+        return { from: startOfDay(today), to: endOfDay(today) };
+    }
+
+    if (preset === "yesterday") {
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+        return { from: startOfDay(yesterday), to: endOfDay(yesterday) };
+    }
+
+    if (preset === "last7") {
+        const from = startOfDay(today);
+        from.setDate(today.getDate() - 6);
+        return { from, to: endOfDay(today) };
+    }
+
+    if (preset === "last30") {
+        const from = startOfDay(today);
+        from.setDate(today.getDate() - 29);
+        return { from, to: endOfDay(today) };
+    }
+
+    return {};
+};
+
+export default function Leads({ token, authUser, activePage }) {
     const [leads, setLeads] = useState([]);
     const [pagination, setPagination] = useState({
         page: 1,
@@ -70,79 +141,7 @@ export default function Leads({ token, authUser }) {
         }
     }, [token, isAdmin]);
 
-    const getLeadId = (lead) => lead._id || lead.id;
-    const ratingValue = (rating) => {
-        if (typeof rating === "number") return rating;
-        if (!/(star|rating)/i.test(String(rating || ""))) return 0;
-        const match = String(rating || "").match(/[\d.]+/);
-        return match ? Number(match[0]) : 0;
-    };
-    const ratingLabel = (rating) => {
-        const value = ratingValue(rating);
-        return value ? String(rating || "").trim() : "";
-    };
-    // const normalize = (value) => String(value || "").toLowerCase();
-    const toDateInputValue = (date) => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        return `${year}-${month}-${day}`;
-    };
-    const formatDisplayDate = (value) => {
-        if (!value) return "";
-        return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-        });
-    };
-    const parseLocalDate = (value) => {
-        if (value instanceof Date) return new Date(value);
-
-        const [year, month, day] = String(value).split("-").map(Number);
-        return new Date(year, month - 1, day);
-    };
-    const startOfDay = (date) => {
-        const d = parseLocalDate(date);
-        d.setHours(0, 0, 0, 0);
-        return d;
-    };
-    const endOfDay = (date) => {
-        const d = parseLocalDate(date);
-        d.setHours(23, 59, 59, 999);
-        return d;
-    };
-    const getPresetRange = (preset) => {
-        if (!preset) return {};
-
-        const today = new Date();
-
-        if (preset === "today") {
-            return { from: startOfDay(today), to: endOfDay(today) };
-        }
-
-        if (preset === "yesterday") {
-            const yesterday = new Date(today);
-            yesterday.setDate(today.getDate() - 1);
-            return { from: startOfDay(yesterday), to: endOfDay(yesterday) };
-        }
-
-        if (preset === "last7") {
-            const from = startOfDay(today);
-            from.setDate(today.getDate() - 6);
-            return { from, to: endOfDay(today) };
-        }
-
-        if (preset === "last30") {
-            const from = startOfDay(today);
-            from.setDate(today.getDate() - 29);
-            return { from, to: endOfDay(today) };
-        }
-
-        return {};
-    };
-
-    const getDateQueryParams = () => {
+    const getDateQueryParams = useCallback(() => {
         const presetRange = getPresetRange(filters.datePreset);
 
         const fromDate = filters.dateFrom
@@ -159,9 +158,9 @@ export default function Leads({ token, authUser }) {
             dateFrom: fromDate ? fromDate.toISOString() : "",
             dateTo: toDate ? toDate.toISOString() : "",
         };
-    };
+    }, [filters.datePreset, filters.dateFrom, filters.dateTo]);
 
-    const getLeadQueryParams = () => ({
+    const getLeadQueryParams = useCallback(() => ({
         ...getDateQueryParams(),
         search: filters.search.trim(),
         category: filters.category.trim(),
@@ -171,9 +170,9 @@ export default function Leads({ token, authUser }) {
         hasEmail: filters.hasEmail,
         hasWebsite: filters.hasWebsite,
         userId: filters.userId,
-    });
+    }), [getDateQueryParams, filters.search, filters.category, filters.city, filters.minRating, filters.hasPhone, filters.hasEmail, filters.hasWebsite, filters.userId]);
 
-    const loadLeads = async (page = 1) => {
+    const loadLeads = useCallback(async (page = 1) => {
         try {
             setLoading(true);
             setSelectedIds([]);
@@ -193,28 +192,17 @@ export default function Leads({ token, authUser }) {
         } finally {
             setLoading(false);
         }
-    };
+    }, [token, getLeadQueryParams]);
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            loadLeads(1);
-        }, 300);
+        if (activePage === "leads") {
+            const timer = setTimeout(() => {
+                loadLeads(1);
+            }, 300);
 
-        return () => clearTimeout(timer);
-    }, [
-        token,
-        filters.search,
-        filters.category,
-        filters.city,
-        filters.minRating,
-        filters.datePreset,
-        filters.dateFrom,
-        filters.dateTo,
-        filters.hasPhone,
-        filters.hasEmail,
-        filters.hasWebsite,
-        filters.userId,
-    ]);
+            return () => clearTimeout(timer);
+        }
+    }, [activePage, loadLeads]);
 
     // Filtering is now done by MongoDB before pagination.
     // Keep this variable so the existing table/rendering code can stay unchanged.
