@@ -15,7 +15,6 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-select": "^5.10.2",
-    "socket.io-client": "^4.8.3""react-dom": "^19.2.6",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {

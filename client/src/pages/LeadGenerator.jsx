@@ -174,75 +174,38 @@ export default function LeadGenerator({ authUser, token }) {
 
                     setJobProgress(job.progress || 0);
                     setJobMessage(job.message || "Scraping leads");
-                    // Extract base URL for socket connection (e.g. http://localhost:7002 from http://localhost:7002/api)
-                    const socketUrl = API_BASE.replace(/\/api\/?$/, "");
-                    const socket = io(socketUrl);
 
-                    socket.on("connect", () => {
-                        console.log("Connected to socket for live updates");
-                    });
-
-                    socket.on(`scrape_update_${jobId}`, (job) => {
-                        if (activeJobRef.current !== jobId) return;
-
-                        setJobProgress(job.progress || 0);
-                        setJobMessage(job.message || "Scraping leads");
-
-                        if (job.status === "completed") {
-                            const data = job.results || [];
-                            setResults(data);
-                            setDone(true);
-                            setLoading(false);
-                            activeJobRef.current = null;
-                            if (data.length === 0) setError(job.message || "No results found. Try a different query.");
-                            return;
-                        }
-                        if (job.status === "completed") {
-                            const data = job.results || [];
-                            setResults(data);
-                            setDone(true);
-                            setLoading(false);
-                            activeJobRef.current = null;
-                            socket.disconnect();
-                            if (data.length === 0) setError(job.message || "No results found. Try a different query.");
-                        }
-
-                        if (job.status === "failed") {
-                            setLoading(false);
-                            activeJobRef.current = null;
-                            setError(job.error || "Scraping failed. Check the server terminal.");
-                            return;
-                        }
-
-                        // Continue polling
-                        setTimeout(pollJob, SCRAPE_POLL_INTERVAL_MS);
-                    } catch (pollErr) {
-                        console.error("Polling error:", pollErr);
-                        // If polling fails (e.g., 500 error), we stop to avoid infinite loops, but we could retry.
-                        // For now, let's just show an error.
+                    if (job.status === "completed") {
+                        const data = job.results || [];
+                        setResults(data);
+                        setDone(true);
                         setLoading(false);
                         activeJobRef.current = null;
-                        setError("Lost connection to server while checking scrape progress.");
+                        if (data.length === 0) setError(job.message || "No results found. Try a different query.");
+                        return;
                     }
-                };
 
-                // Start polling
-                setTimeout(pollJob, SCRAPE_POLL_INTERVAL_MS);
+                    if (job.status === "failed") {
+                        setLoading(false);
+                        activeJobRef.current = null;
+                        setError(job.error || "Scraping failed. Check the server terminal.");
+                        return;
+                    }
 
-                if (job.status === "failed") {
+                    // Continue polling
+                    setTimeout(pollJob, SCRAPE_POLL_INTERVAL_MS);
+                } catch (pollErr) {
+                    console.error("Polling error:", pollErr);
                     setLoading(false);
                     activeJobRef.current = null;
-                    socket.disconnect();
-                    setError(job.error || "Scraping failed. Check the server terminal.");
+                    setError("Lost connection to server while checking scrape progress.");
                 }
-            });
+            };
 
-            socket.on("connect_error", (err) => {
-                console.error("Socket connection error:", err);
-            });
+            // Start polling
+            setTimeout(pollJob, SCRAPE_POLL_INTERVAL_MS);
 
         } catch (err) {
-            setLoading(false);
             setLoading(false);
             if (err.response?.data?.message) {
                 setError(err.response.data.message);
