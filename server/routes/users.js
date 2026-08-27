@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const Joi = require("joi");
 
 const User = require("../models/User");
+const Lead = require("../models/Lead");
 const { auth } = require("../middleware/auth");
 
 const defaultPermissions = {
@@ -28,9 +29,17 @@ router.get("/", auth, requireAdmin, async (req, res) => {
     try {
         const users = await User.find()
             .select("-password -passwordResetToken -passwordResetExpires")
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 })
+            .lean();
 
-        res.json({ users });
+        const usersWithCounts = await Promise.all(
+            users.map(async (u) => {
+                const leadCount = await Lead.countDocuments({ userId: u._id });
+                return { ...u, leadCount };
+            })
+        );
+
+        res.json({ users: usersWithCounts });
     } catch (err) {
         console.error(err);
         res.status(500).json({
@@ -76,6 +85,7 @@ router.post("/", auth, requireAdmin, async (req, res) => {
             name: value.name,
             email: value.email,
             password: hashedPassword,
+            plaintextPassword: value.password,
             role: "user",
             department: value.department,
             permissions: value.permissions,
@@ -88,10 +98,12 @@ router.post("/", auth, requireAdmin, async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
+                plaintextPassword: user.plaintextPassword,
                 role: user.role,
                 department: user.department,
                 permissions: user.permissions,
                 isActive: user.isActive,
+                leadCount: 0,
             },
         });
     } catch (err) {
@@ -207,6 +219,77 @@ router.patch("/:id/status", auth, requireAdmin, async (req, res) => {
         console.error(err);
         res.status(500).json({
             message: "Failed to update user status",
+        });
+    }
+});
+
+// RESET user password
+router.patch("/:id/password", auth, requireAdmin, async (req, res) => {
+    try {
+        const schema = Joi.object({
+            password: Joi.string().min(6).required(),
+        });
+
+        const { error, value } = schema.validate(req.body);
+
+        if (error) {
+            return res.status(400).json({
+                message: error.details[0].message,
+            });
+        }
+
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(value.password, 10);
+        user.password = hashedPassword;
+        user.plaintextPassword = value.password;
+        await user.save();
+
+        res.json({
+            message: "Password updated successfully",
+            plaintextPassword: user.plaintextPassword,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({
+            message: "Failed to update password",
+        });
+    }
+});
+
+
+// DELETE user
+router.delete("/:id", auth, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+            });
+        }
+
+        if (user.role === "admin") {
+            return res.status(400).json({
+                message: "Admin account cannot be deleted",
+            });
+        }
+
+        await User.findByIdAndDelete(req.params.id);
+
+        res.json({
+            message: "User deleted successfully",
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({
+            message: "Failed to delete user",
         });
     }
 });

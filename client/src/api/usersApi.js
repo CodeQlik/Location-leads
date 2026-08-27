@@ -32,3 +32,19 @@ export const updateUserPermissions = (token, userId, permissions) => {
         }
     );
 };
+
+export const deleteUser = (token, userId) => {
+    return axios.delete(`${API_BASE}/users/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+};
+
+export const updateUserPassword = (token, userId, password) => {
+    return axios.patch(
+        `${API_BASE}/users/${userId}/password`,
+        { password },
+        {
+            headers: { Authorization: `Bearer ${token}` },
+        }
+    );
+};

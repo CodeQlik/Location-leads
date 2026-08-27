@@ -17,6 +17,7 @@ const buildLeadParams = (filters = {}) => cleanParams({
     hasPhone: filters.hasPhone ? "true" : "",
     hasEmail: filters.hasEmail ? "true" : "",
     hasWebsite: filters.hasWebsite ? "true" : "",
+    userId: filters.userId || "",
     _t: Date.now(),
 });
 

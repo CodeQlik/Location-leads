@@ -5,11 +5,61 @@ const { Parser } = require("json2csv");
 const authRoutes = require("./routes/auth");
 const { auth, authorize, requirePermission } = require("./middleware/auth");
 const usersRoutes = require("./routes/users");
+const areasRoutes = require("./routes/areas");
 
 require("dotenv").config();
 
+const { Country: CSC_Country, State: CSC_State, City: CSC_City } = require("country-state-city");
+
 const connectDB = require("./config/database");
 const Lead = require("./models/Lead");
+const City = require("./models/City");
+const State = require("./models/State");
+
+const User = require("./models/User");
+
+// One-time database migration for legacy leads
+async function migrateLegacyLeads() {
+  try {
+    const adminUser = await User.findOne({ role: "admin", department: "admin" });
+    if (!adminUser) return;
+
+    const legacyCount = await Lead.countDocuments({ userId: { $exists: false } });
+    if (legacyCount > 0) {
+      console.log(`[Migration] Found ${legacyCount} legacy leads without userId. Migrating to admin: ${adminUser.email}`);
+
+      // Update userId
+      await Lead.updateMany({ userId: { $exists: false } }, { $set: { userId: adminUser._id } });
+
+      // Find leads that don't have user ID prefixed in their dedupeKey
+      const legacyLeadsToPrefix = await Lead.find({
+        userId: adminUser._id,
+        dedupeKey: { $not: new RegExp(`^${adminUser._id}_`) }
+      });
+
+      console.log(`[Migration] Prefixing dedupeKey for ${legacyLeadsToPrefix.length} legacy leads`);
+
+      const bulkOps = legacyLeadsToPrefix.map(lead => ({
+        updateOne: {
+          filter: { _id: lead._id },
+          update: { $set: { dedupeKey: `${adminUser._id}_${lead.dedupeKey}` } }
+        }
+      }));
+
+      if (bulkOps.length > 0) {
+        await Lead.bulkWrite(bulkOps);
+      }
+
+      console.log(`[Migration] Successfully migrated all legacy leads!`);
+    }
+  } catch (err) {
+    console.error("[Migration Error]", err);
+  }
+}
+
+connectDB().then(() => {
+  migrateLegacyLeads();
+});
 const http = require("http");
 const { Server } = require("socket.io");
 
@@ -34,6 +84,7 @@ io.on("connection", (socket) => {
 app.set("etag", false);
 
 app.use((req, res, next) => {
+  console.log(`[API REQUEST] ${req.method} ${req.url}`);
   const origin = req.headers.origin || "*";
 
   res.setHeader("Access-Control-Allow-Origin", origin);
@@ -65,21 +116,28 @@ app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 app.use(express.json());
 
+const locationsRoutes = require("./routes/locations");
+
 app.use("/auth", authRoutes);
 app.use("/users", usersRoutes);
+app.use("/areas", areasRoutes);
+app.use("/locations", locationsRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/areas", areasRoutes);
+app.use("/api/locations", locationsRoutes);
 
 const PORT = process.env.PORT || 7002;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
 const scrapeJobs = new Map();
 
-function createScrapeJob(query, limit) {
+function createScrapeJob(query, limit, userId) {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const job = {
     id,
     query,
     limit,
+    userId,
     status: "queued",
     progress: 0,
     message: "Queued",
@@ -99,7 +157,7 @@ function updateScrapeJob(id, changes) {
   if (!job) return;
 
   Object.assign(job, changes, { updatedAt: new Date() });
-  
+
   // Emit real-time update to all connected clients
   io.emit(`scrape_update_${id}`, job);
 }
@@ -148,8 +206,15 @@ function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildLeadsQuery(queryParams) {
+function buildLeadsQuery(queryParams, reqUser) {
   const and = [];
+
+  const isAdmin = reqUser?.role === "admin" && reqUser?.department === "admin";
+  if (!isAdmin) {
+    and.push({ userId: reqUser?._id });
+  } else if (queryParams.userId) {
+    and.push({ userId: queryParams.userId });
+  }
 
   const search = String(queryParams.search || "").trim();
   const category = String(queryParams.category || "").trim();
@@ -272,7 +337,7 @@ app.get(
 
       // Important: build MongoDB query from filters first.
       // Pagination is applied only after MongoDB has matched filtered leads.
-      const query = buildLeadsQuery(req.query);
+      const query = buildLeadsQuery(req.query, req.user);
 
       console.log("LEADS DB QUERY:", {
         page,
@@ -331,7 +396,7 @@ app.get(
         "Surrogate-Control": "no-store",
       });
 
-      const query = buildLeadsQuery(req.query);
+      const query = buildLeadsQuery(req.query, req.user);
 
       console.log("LEADS EXPORT DB QUERY:", {
         filters: {
@@ -456,7 +521,7 @@ function startScrapeHandler(req, res) {
     return res.status(400).json({ message: "Query is required" });
   }
 
-  const job = createScrapeJob(query, limit);
+  const job = createScrapeJob(query, limit, req.user?._id);
   const responseBody = JSON.stringify({
     jobId: job.id,
     status: job.status,
@@ -511,18 +576,89 @@ async function runScrapeJob(jobId) {
   const job = scrapeJobs.get(jobId);
   if (!job) return;
 
-  const { query, limit } = job;
+  const { query, limit, userId } = job;
   let browser;
 
   console.log("\n=== SCRAPE JOB STARTED:", query, "limit:", limit, "job:", jobId, "===");
   updateScrapeJob(jobId, { status: "running", progress: 5, message: "Opening Google Maps" });
 
   try {
-    const executablePath = await puppeteer.executablePath();
+    // Helper to resolve state queries into multi-city queries
+    async function getQueriesForSearch(origQuery) {
+      const parts = origQuery.split(" in ");
+      if (parts.length < 2) return [origQuery];
+
+      const keyword = parts[0].trim();
+      const locationPart = parts[1].trim();
+      const locationParts = locationPart.split(",").map(p => p.trim());
+
+      if (locationParts.length === 2) {
+        const stateName = locationParts[0];
+        const countryName = locationParts[1];
+
+        // 1. Try curated database first (specifically for India)
+        if (countryName.toLowerCase() === "india") {
+          try {
+            const stateDoc = await State.findOne({ name: new RegExp(`^${stateName}$`, "i") });
+            if (stateDoc) {
+              const cities = await City.find({ state: stateDoc._id }).limit(10);
+              if (cities && cities.length > 0) {
+                console.log(`[Auto-State Multiplexing] Resolved ${cities.length} cities from DB for state ${stateName}.`);
+                return cities.map(city => `${keyword} in ${city.name}, ${stateName}, India`);
+              }
+            }
+          } catch (dbErr) {
+            console.error("[Auto-State Multiplexing] DB query error:", dbErr.message);
+          }
+        }
+
+        // 2. Fallback to country-state-city library for global coverage (USA, Canada, etc.)
+        try {
+          const allCountries = CSC_Country.getAllCountries();
+          const countryObj = allCountries.find(c =>
+            c.name.toLowerCase() === countryName.toLowerCase() ||
+            c.isoCode.toLowerCase() === countryName.toLowerCase()
+          );
+
+          if (countryObj) {
+            const countryStates = CSC_State.getStatesOfCountry(countryObj.isoCode);
+            const stateObj = countryStates.find(s =>
+              s.name.toLowerCase() === stateName.toLowerCase() ||
+              s.isoCode.toLowerCase() === stateName.toLowerCase()
+            );
+
+            if (stateObj) {
+              const allCities = CSC_City.getCitiesOfState(countryObj.isoCode, stateObj.isoCode);
+              if (allCities && allCities.length > 0) {
+                // Select 12 cities spread evenly across the list to get a diverse distribution
+                let selectedCities = [];
+                if (allCities.length <= 12) {
+                  selectedCities = allCities;
+                } else {
+                  const step = Math.floor(allCities.length / 12);
+                  for (let i = 0; i < 12; i++) {
+                    const idx = Math.min(i * step, allCities.length - 1);
+                    selectedCities.push(allCities[idx]);
+                  }
+                }
+
+                console.log(`[Auto-State Multiplexing] Resolved ${selectedCities.length} cities from CSC library for state ${stateName}, ${countryName}.`);
+                return selectedCities.map(city => `${keyword} in ${city.name}, ${stateName}, ${countryObj.name}`);
+              }
+            }
+          }
+        } catch (cscErr) {
+          console.error("[Auto-State Multiplexing] CSC library lookup error:", cscErr.message);
+        }
+      }
+      return [origQuery];
+    }
+
+    const queriesToScrape = await getQueriesForSearch(query);
+    const totalQueries = queriesToScrape.length;
 
     browser = await puppeteer.launch({
       headless: true,
-      executablePath,
       protocolTimeout: FIVE_HOURS_MS,
       args: [
         "--no-sandbox",
@@ -535,216 +671,236 @@ async function runScrapeJob(jobId) {
       defaultViewport: null,
     });
 
-    const page = await browser.newPage();
-    page.setDefaultTimeout(FIVE_HOURS_MS);
-    page.setDefaultNavigationTimeout(FIVE_HOURS_MS);
-
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    );
-
-    const mapsUrl = `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
-
-    console.log("Navigating to:", mapsUrl);
-
-    await page.goto(mapsUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: FIVE_HOURS_MS,
-    });
-
-    await new Promise((r) => setTimeout(r, 4000));
-
-    try {
-      for (const sel of [
-        "#L2AGLb",
-        'button[aria-label*="Accept"]',
-        "form:nth-child(2) button",
-      ]) {
-        const btn = await page.$(sel);
-
-        if (btn) {
-          await btn.click();
-          await new Promise((r) => setTimeout(r, 2000));
-          break;
-        }
-      }
-    } catch (_) { }
-
-    await page.screenshot({ path: "debug-screenshot.png" });
-
-    console.log("Current URL:", page.url());
-
-    let isFeed = false;
-
-    try {
-      updateScrapeJob(jobId, { progress: 15, message: "Waiting for Google Maps results" });
-      await page.waitForSelector('div[role="feed"]', { timeout: FIVE_HOURS_MS });
-      isFeed = true;
-      console.log("Feed found ✓");
-    } catch (_) {
-      console.log("No feed — checking single result...");
-    }
-
-    if (!isFeed) {
-      const hasSingleResult = await page.$("h1");
-
-      if (hasSingleResult) {
-        const data = await scrapePlacePage(page);
-
-        if (data.name) {
-          const dedupeKey = generateDedupeKey(data);
-          const existingLead = await Lead.exists({ dedupeKey });
-
-          if (existingLead) {
-            updateScrapeJob(jobId, {
-              status: "completed",
-              progress: 100,
-              message: "Duplicate skipped",
-              results: [],
-              skippedDuplicates: 1,
-            });
-            return;
+    async function configurePage(p, timeoutMs = 30000) {
+      await p.setRequestInterception(true);
+      p.on('request', (req) => {
+        try {
+          const resourceType = req.resourceType();
+          if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+            req.abort().catch(() => { });
+          } else {
+            req.continue().catch(() => { });
           }
-
-          const savedLead = await Lead.create({
-            query,
-            name: data.name || "",
-            rating: data.rating || "",
-            reviews: data.reviews || "",
-            category: data.category || "",
-            address: data.address || "",
-            phone: data.phone || "",
-            email: data.email || "",
-            website: data.website || "",
-            dedupeKey,
-            lastScrapedAt: new Date(),
-          });
-
-          updateScrapeJob(jobId, {
-            status: "completed",
-            progress: 100,
-            message: "Scrape completed",
-            results: [savedLead],
-            skippedDuplicates: 0,
-          });
-          return;
-        }
-
-        updateScrapeJob(jobId, {
-          status: "completed",
-          progress: 100,
-          message: "No results found",
-          results: [],
-          skippedDuplicates: 0,
-        });
-        return;
-      }
-
-      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 300));
-      console.log("Page preview:", pageText);
-      throw new Error("Could not find results. Check debug-screenshot.png");
+        } catch (_) { }
+      });
+      p.setDefaultTimeout(timeoutMs);
+      p.setDefaultNavigationTimeout(timeoutMs);
+      await p.setViewport({ width: 1920, height: 1080 });
+      await p.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
+      await p.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      );
     }
 
-    await new Promise((r) => setTimeout(r, 2000));
+    const allScrapedResults = [];
+    const processedDedupeKeys = new Set();
 
-    const scrollableDiv = await page.$('div[role="feed"]');
+    for (let qIndex = 0; qIndex < totalQueries; qIndex++) {
+      const currentQuery = queriesToScrape[qIndex];
+      const parsedParts = currentQuery.split(" in ");
+      const locationLabel = parsedParts[1] ? parsedParts[1].split(",")[0].trim() : "target";
 
-    if (scrollableDiv) {
-      let lastCount = 0;
-      let sameCount = 0;
-      const maxScrolls = limit >= 30 ? 60 : 40;
+      const queryProgressBase = (qIndex / totalQueries) * 100;
+      const queryProgressWeight = 100 / totalQueries;
 
-      for (let i = 0; i < maxScrolls; i++) {
-        await page.evaluate(() => {
-          const feed = document.querySelector('div[role="feed"]');
-          if (feed) {
-            feed.scrollBy({ top: 3000, behavior: "instant" });
-          }
-        });
-        await new Promise((r) => setTimeout(r, 2500));
+      console.log(`\n--- Scraping Query ${qIndex + 1}/${totalQueries}: "${currentQuery}" ---`);
+      updateScrapeJob(jobId, {
+        progress: Math.min(95, Math.round(queryProgressBase + 5)),
+        message: `Scraping ${locationLabel} (${qIndex + 1}/${totalQueries}) - Connecting...`,
+      });
 
-        const currentCount = await page.$$eval(
-          'a[href*="/place/"]',
-          (els) => [...new Set(els.map((el) => el.href))].length
-        );
+      const page = await browser.newPage();
+      await configurePage(page, 180000); // 3 minutes timeout for the main search page operations
 
-        const endReached = await page.evaluate(() =>
-          document.body.innerText.includes("You've reached the end of the list")
-        );
+      const mapsUrl = `https://www.google.com/maps/search/${encodeURIComponent(currentQuery)}`;
+      console.log("Navigating to:", mapsUrl);
 
-        console.log(`Scroll ${i + 1}: ${currentCount} place links found`);
-        updateScrapeJob(jobId, {
-          progress: Math.min(45, 15 + Math.round((currentCount / limit) * 30)),
-          message: `Finding result links (${Math.min(currentCount, limit)}/${limit})`,
-        });
+      await page.goto(mapsUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: FIVE_HOURS_MS,
+      });
 
-        if (currentCount >= limit) break;
+      await new Promise((r) => setTimeout(r, 4000));
 
-        if (endReached) {
-          console.log("Google Maps says end of list reached.");
-          break;
-        }
-
-        if (currentCount === lastCount) {
-          sameCount++;
-        } else {
-          sameCount = 0;
-          lastCount = currentCount;
-        }
-
-        if (sameCount >= 12) {
-          console.log("No new results after many scrolls. Stopping.");
-          break;
-        }
-      }
-    }
-
-    const links = await page.$$eval('a[href*="/place/"]', (els) => [
-      ...new Set(els.map((el) => el.href)),
-    ]);
-
-    console.log(`Found ${links.length} place links`);
-
-    const results = [];
-    const selectedLinks = links.slice(0, limit);
-
-    for (const [index, link] of selectedLinks.entries()) {
       try {
-        updateScrapeJob(jobId, {
-          progress: Math.min(90, 45 + Math.round((index / Math.max(selectedLinks.length, 1)) * 45)),
-          message: `Scraping lead ${index + 1}/${selectedLinks.length}`,
-        });
-
-        await page.goto(link, {
-          waitUntil: "domcontentloaded",
-          timeout: FIVE_HOURS_MS,
-        });
-
-        await new Promise((r) => setTimeout(r, 3000));
-
-        const data = await scrapePlacePage(page);
-
-        if (data.name) {
-          results.push(data);
-          console.log("✓ Scraped:", data.name);
+        for (const sel of [
+          "#L2AGLb",
+          'button[aria-label*="Accept"]',
+          "form:nth-child(2) button",
+        ]) {
+          const btn = await page.$(sel);
+          if (btn) {
+            await btn.click();
+            await new Promise((r) => setTimeout(r, 2000));
+            break;
+          }
         }
-      } catch (err) {
-        console.log("  ✗ Error:", err.message);
+      } catch (_) { }
+
+      let isFeed = false;
+      try {
+        await page.waitForSelector('div[role="feed"]', { timeout: 15000 });
+        isFeed = true;
+        console.log("Feed found ✓");
+      } catch (_) {
+        console.log("No feed — checking single result...");
       }
+
+      if (!isFeed) {
+        const hasSingleResult = await page.$("h1");
+        if (hasSingleResult) {
+          const data = await scrapePlacePage(page);
+          if (data.name) {
+            if (data.website && !data.email) {
+              try {
+                data.email = await extractEmailFromWebsite(browser, data.website);
+              } catch (emailErr) {
+                console.log(`  ✗ Email extraction failed for ${data.website}:`, emailErr.message);
+              }
+            }
+            const dedupeKey = generateDedupeKey(data);
+            if (!processedDedupeKeys.has(dedupeKey)) {
+              processedDedupeKeys.add(dedupeKey);
+              allScrapedResults.push(data);
+            }
+          }
+        }
+        await page.close().catch(() => { });
+        continue;
+      }
+
+      await new Promise((r) => setTimeout(r, 2000));
+      const scrollableDiv = await page.$('div[role="feed"]');
+
+      if (scrollableDiv) {
+        let lastCount = 0;
+        let sameCount = 0;
+        // Limit query items dynamically
+        const queryLimit = totalQueries > 1 ? Math.ceil(limit / 5) : limit;
+        const maxScrolls = queryLimit >= 100 ? 80 : 30;
+
+        for (let i = 0; i < maxScrolls; i++) {
+          await page.evaluate(() => {
+            const feed = document.querySelector('div[role="feed"]');
+            if (feed) {
+              feed.scrollBy({ top: 3000, behavior: "instant" });
+            }
+          });
+          await new Promise((r) => setTimeout(r, 2500));
+
+          const currentCount = await page.$$eval(
+            'a[href*="/place/"]',
+            (els) => [...new Set(els.map((el) => el.href))].length
+          );
+
+          const endReached = await page.evaluate(() =>
+            document.body.innerText.includes("You've reached the end of the list")
+          );
+
+          console.log(`Scroll ${i + 1}: ${currentCount} place links found`);
+          updateScrapeJob(jobId, {
+            progress: Math.min(95, Math.round(queryProgressBase + (currentCount / queryLimit) * queryProgressWeight * 0.4)),
+            message: `Scraping ${locationLabel} (${qIndex + 1}/${totalQueries}) - Finding links (${Math.min(currentCount, queryLimit)}/${queryLimit})`,
+          });
+
+          if (currentCount >= queryLimit) break;
+          if (endReached) {
+            console.log("Google Maps says end of list reached.");
+            break;
+          }
+
+          if (currentCount === lastCount) {
+            sameCount++;
+          } else {
+            sameCount = 0;
+            lastCount = currentCount;
+          }
+
+          if (sameCount >= 10) {
+            console.log("No new results after many scrolls. Stopping.");
+            break;
+          }
+        }
+      }
+
+      const links = await page.$$eval('a[href*="/place/"]', (els) => [
+        ...new Set(els.map((el) => el.href)),
+      ]);
+
+      const queryLimit = totalQueries > 1 ? Math.ceil(limit / 5) : limit;
+      const selectedLinks = links.slice(0, queryLimit);
+      console.log(`Found ${selectedLinks.length} place links for ${locationLabel}`);
+
+      const CONCURRENCY_LIMIT = 4;
+      for (let i = 0; i < selectedLinks.length; i += CONCURRENCY_LIMIT) {
+        const chunk = selectedLinks.slice(i, i + CONCURRENCY_LIMIT);
+
+        updateScrapeJob(jobId, {
+          progress: Math.min(95, Math.round(queryProgressBase + queryProgressWeight * 0.4 + (i / Math.max(selectedLinks.length, 1)) * queryProgressWeight * 0.5)),
+          message: `Scraping ${locationLabel} (${qIndex + 1}/${totalQueries}) - Details ${i + 1} to ${Math.min(i + CONCURRENCY_LIMIT, selectedLinks.length)} of ${selectedLinks.length}`,
+        });
+
+        const promises = chunk.map(async (link) => {
+          let newPage = null;
+          try {
+            newPage = await browser.newPage();
+            await configurePage(newPage, 30000);
+            await newPage.goto(link, {
+              waitUntil: "domcontentloaded",
+              timeout: 30000,
+            });
+            await new Promise((r) => setTimeout(r, 1500));
+            const data = await scrapePlacePage(newPage);
+            if (data.name) {
+              if (data.website && !data.email) {
+                try {
+                  data.email = await extractEmailFromWebsite(browser, data.website);
+                } catch (emailErr) {
+                  console.log(`  ✗ Email extraction failed for ${data.website}:`, emailErr.message);
+                }
+              }
+              console.log("✓ Scraped:", data.name, data.email ? `(Email: ${data.email})` : "(No email)");
+              return data;
+            }
+          } catch (err) {
+            console.log("  ✗ Error:", err.message);
+          } finally {
+            if (newPage) await newPage.close().catch(() => { });
+          }
+          return null;
+        });
+
+        const chunkResults = await Promise.all(promises);
+        for (const res of chunkResults) {
+          if (res) {
+            const dedupeKey = generateDedupeKey(res);
+            if (!processedDedupeKeys.has(dedupeKey)) {
+              processedDedupeKeys.add(dedupeKey);
+              allScrapedResults.push(res);
+            }
+          }
+        }
+      }
+
+      await page.close().catch(() => { });
     }
 
-    updateScrapeJob(jobId, { progress: 92, message: "Saving leads" });
+    // Save all leads to the database
+    updateScrapeJob(jobId, { progress: 96, message: "Saving leads" });
 
     let savedResults = [];
     let skippedDuplicates = 0;
 
-    if (results.length > 0) {
-      const leadsWithKeys = results.map((lead) => ({
-        ...lead,
-        dedupeKey: generateDedupeKey(lead),
-      }));
+    if (allScrapedResults.length > 0) {
+      const leadsWithKeys = allScrapedResults.map((lead) => {
+        const baseKey = generateDedupeKey(lead);
+        // Prefix unique dedupeKey with userId to scope duplicates per user
+        const dedupeKey = userId ? `${userId}_${baseKey}` : baseKey;
+        return {
+          ...lead,
+          dedupeKey,
+        };
+      });
 
       const existingKeys = new Set(
         (
@@ -760,7 +916,6 @@ async function runScrapeJob(jobId) {
         if (existingKeys.has(lead.dedupeKey) || seenNewKeys.has(lead.dedupeKey)) {
           return false;
         }
-
         seenNewKeys.add(lead.dedupeKey);
         return true;
       });
@@ -771,6 +926,7 @@ async function runScrapeJob(jobId) {
         const now = new Date();
         const documents = newLeads.map((lead) => ({
           query,
+          userId,
           name: lead.name || "",
           rating: lead.rating || "",
           reviews: lead.reviews || "",
@@ -821,6 +977,164 @@ async function runScrapeJob(jobId) {
   }
 }
 
+async function extractEmailFromWebsite(browser, websiteUrl) {
+  if (!websiteUrl || typeof websiteUrl !== "string") return "";
+  let url = websiteUrl.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    url = "https://" + url;
+  }
+
+  console.log(`[Email Extractor] Attempting to scrape email from: ${url}`);
+  let page = null;
+  try {
+    page = await browser.newPage();
+    // Intercept requests to block images, styles, fonts, etc.
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      try {
+        const type = req.resourceType();
+        if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+          req.abort().catch(() => { });
+        } else {
+          req.continue().catch(() => { });
+        }
+      } catch (_) { }
+    });
+
+    page.setDefaultTimeout(12000);
+    page.setDefaultNavigationTimeout(12000);
+
+    // Go to website homepage
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 12000 });
+
+    // Find emails on the homepage
+    let emails = await page.evaluate(() => {
+      const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,10}/g;
+
+      function searchEmailsInText(text) {
+        const matches = text.match(emailRegex) || [];
+        const invalidExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.bmp', '.tiff'];
+        const list = [];
+        for (const match of matches) {
+          const lower = match.toLowerCase();
+          if (invalidExtensions.some(ext => lower.endsWith(ext))) continue;
+          if (lower.includes('sentry.io') || lower.startsWith('npm@') || lower.startsWith('bootstrap@') || lower.includes('example.com') || lower.includes('yourdomain')) continue;
+          if (!list.includes(match)) {
+            list.push(match);
+          }
+        }
+        return list;
+      }
+
+      // Check mailto links first
+      const mailtoEmails = [];
+      const mailtoLinks = document.querySelectorAll('a[href^="mailto:"]');
+      for (const link of mailtoLinks) {
+        const email = link.href.replace(/^mailto:/i, "").split("?")[0].trim();
+        if (email && email.includes('@') && !mailtoEmails.includes(email)) {
+          const lower = email.toLowerCase();
+          const invalidExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js'];
+          if (!invalidExtensions.some(ext => lower.endsWith(ext))) {
+            mailtoEmails.push(email);
+          }
+        }
+      }
+      if (mailtoEmails.length > 0) return mailtoEmails;
+
+      // Check body text
+      const bodyEmails = searchEmailsInText(document.body.innerText);
+      if (bodyEmails.length > 0) return bodyEmails;
+
+      // Check whole HTML
+      return searchEmailsInText(document.documentElement.innerHTML);
+    });
+
+    if (emails && emails.length > 0) {
+      console.log(`[Email Extractor] Found email: ${emails[0]} on homepage`);
+      return emails[0];
+    }
+
+    // If no email found, try to locate a Contact or About page
+    console.log(`[Email Extractor] No email on homepage of ${url}. Looking for Contact/About link...`);
+    const contactUrl = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a'));
+      for (const link of links) {
+        const href = link.href || '';
+        const text = (link.innerText || '').toLowerCase();
+        if (
+          href.includes('contact') ||
+          href.includes('about') ||
+          href.includes('reach') ||
+          text.includes('contact') ||
+          text.includes('about') ||
+          text.includes('get in touch') ||
+          text.includes('support')
+        ) {
+          return link.href;
+        }
+      }
+      return null;
+    });
+
+    if (contactUrl && contactUrl !== url && /^https?:\/\//i.test(contactUrl)) {
+      console.log(`[Email Extractor] Found contact link: ${contactUrl}. Navigating...`);
+      await page.goto(contactUrl, { waitUntil: "domcontentloaded", timeout: 12000 });
+
+      emails = await page.evaluate(() => {
+        const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,10}/g;
+
+        function searchEmailsInText(text) {
+          const matches = text.match(emailRegex) || [];
+          const invalidExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.bmp', '.tiff'];
+          const list = [];
+          for (const match of matches) {
+            const lower = match.toLowerCase();
+            if (invalidExtensions.some(ext => lower.endsWith(ext))) continue;
+            if (lower.includes('sentry.io') || lower.startsWith('npm@') || lower.startsWith('bootstrap@') || lower.includes('example.com') || lower.includes('yourdomain')) continue;
+            if (!list.includes(match)) {
+              list.push(match);
+            }
+          }
+          return list;
+        }
+
+        const mailtoEmails = [];
+        const mailtoLinks = document.querySelectorAll('a[href^="mailto:"]');
+        for (const link of mailtoLinks) {
+          const email = link.href.replace(/^mailto:/i, "").split("?")[0].trim();
+          if (email && email.includes('@') && !mailtoEmails.includes(email)) {
+            const lower = email.toLowerCase();
+            const invalidExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js'];
+            if (!invalidExtensions.some(ext => lower.endsWith(ext))) {
+              mailtoEmails.push(email);
+            }
+          }
+        }
+        if (mailtoEmails.length > 0) return mailtoEmails;
+
+        const bodyEmails = searchEmailsInText(document.body.innerText);
+        if (bodyEmails.length > 0) return bodyEmails;
+
+        return searchEmailsInText(document.documentElement.innerHTML);
+      });
+
+      if (emails && emails.length > 0) {
+        console.log(`[Email Extractor] Found email: ${emails[0]} on contact page`);
+        return emails[0];
+      }
+    }
+
+  } catch (err) {
+    console.log(`[Email Extractor] Error extracting email from ${url}: ${err.message}`);
+  } finally {
+    if (page) {
+      await page.close().catch(() => { });
+    }
+  }
+
+  return "";
+}
+
 async function scrapePlacePage(page) {
   return page.evaluate(() => {
     const name = document.querySelector("h1")?.innerText?.trim() || "";
@@ -830,7 +1144,9 @@ async function scrapePlacePage(page) {
       .map((el) => el.getAttribute("aria-label") || "")
       .find((label) => /(?:\d+(?:\.\d+)?)\s*(?:stars?|rating)/i.test(label));
     const rating = ratingLabel || "";
-    const category = document.querySelector(".DkEaL")?.innerText?.trim() || "";
+    const category = document.querySelector(".DkEaL")?.innerText?.trim() ||
+      document.querySelector('button[jsaction*="category"]')?.innerText?.trim() ||
+      "";
 
     let address = "";
     let phone = "";
