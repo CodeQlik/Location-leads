@@ -15,7 +15,11 @@ export default function App() {
   });
 
   const [token, setToken] = useState(() => sessionStorage.getItem("token") || "");
-  const [activePage, setActivePage] = useState("leadGenerator");
+  const [activePage, setActivePage] = useState(() => sessionStorage.getItem("activePage") || "leadGenerator");
+
+  useEffect(() => {
+    sessionStorage.setItem("activePage", activePage);
+  }, [activePage]);
 
   const handleLoginSuccess = ({ token: loginToken, user }) => {
     sessionStorage.setItem("token", loginToken);
@@ -72,31 +76,6 @@ export default function App() {
   const renderPage = () => {
     const page = canAccessPage(activePage) ? activePage : firstAllowedPage();
 
-    if (page === "leadGenerator") {
-      return (
-        <LeadGenerator
-          authUser={authUser}
-          token={token}
-          handleLogout={handleLogout}
-        />
-      );
-    }
-
-    if (page === "leads") {
-      return <Leads token={token} authUser={authUser} />;
-    }
-
-    if (page === "admin" && isAdmin) {
-      return (
-        <AdminDashboard
-          authUser={authUser}
-          token={token}
-          goToLeads={() => setActivePage("leadGenerator")}
-          handleLogout={handleLogout}
-        />
-      );
-    }
-
     if (firstAllowedPage() === "noAccess") {
       return (
         <div style={{ padding: "32px", fontFamily: "'Inter', sans-serif" }}>
@@ -108,7 +87,36 @@ export default function App() {
       );
     }
 
-    return null;
+    return (
+      <>
+        {canAccessPage("leadGenerator") && (
+          <div style={{ display: page === "leadGenerator" ? "block" : "none" }}>
+            <LeadGenerator
+              authUser={authUser}
+              token={token}
+              handleLogout={handleLogout}
+            />
+          </div>
+        )}
+
+        {canAccessPage("leads") && (
+          <div style={{ display: page === "leads" ? "block" : "none" }}>
+            <Leads token={token} authUser={authUser} />
+          </div>
+        )}
+
+        {canAccessPage("admin") && isAdmin && (
+          <div style={{ display: page === "admin" ? "block" : "none" }}>
+            <AdminDashboard
+              authUser={authUser}
+              token={token}
+              goToLeads={() => setActivePage("leadGenerator")}
+              handleLogout={handleLogout}
+            />
+          </div>
+        )}
+      </>
+    );
   };
 
   return (

@@ -18,6 +18,7 @@ export default function LocationSelector({ token, onLocationChange }) {
   const [isAddingArea, setIsAddingArea] = useState(false);
   const [newAreaName, setNewAreaName] = useState("");
   const [fetchError, setFetchError] = useState("");
+  const [isLoadingAreas, setIsLoadingAreas] = useState(false);
 
   useEffect(() => {
     // Fetch all countries on mount
@@ -95,6 +96,7 @@ export default function LocationSelector({ token, onLocationChange }) {
   const fetchAreas = async () => {
     if (!selectedCity || !selectedState || !selectedCountry) return;
     try {
+      setIsLoadingAreas(true);
       setFetchError("");
       const res = await axios.get(`${API_BASE}/areas`, {
         params: {
@@ -115,6 +117,8 @@ export default function LocationSelector({ token, onLocationChange }) {
       console.error("Failed to fetch areas", err);
       setFetchError(err.message || "Failed to fetch areas");
       setAreas([]);
+    } finally {
+      setIsLoadingAreas(false);
     }
   };
 
@@ -233,6 +237,7 @@ export default function LocationSelector({ token, onLocationChange }) {
               placeholder="Select Area (Optional)"
               isDisabled={!selectedCity}
               isClearable
+              isLoading={isLoadingAreas}
             />
             <button
               onClick={() => setIsAddingArea(true)}

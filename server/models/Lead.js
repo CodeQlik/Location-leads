@@ -49,6 +49,11 @@ const leadSchema = new mongoose.Schema(
             type: String,
             default: "",
         },
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            index: true,
+        },
         dedupeKey: {
             type: String,
             unique: true,

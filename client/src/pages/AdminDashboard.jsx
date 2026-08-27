@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { createUser, getUsers, updateUserPermissions, updateUserStatus } from "../api/usersApi";
+import axios from "axios";
+import { API_BASE } from "../config/api";
+import { createUser, getUsers, updateUserPermissions, updateUserStatus, deleteUser, updateUserPassword } from "../api/usersApi";
 
 export default function AdminDashboard({ token, goToLeads, handleLogout }) {
     const [users, setUsers] = useState([]);
@@ -19,6 +21,11 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
     const [openPermissionsUserId, setOpenPermissionsUserId] = useState(null);
+    const [deleteConfirmUser, setDeleteConfirmUser] = useState(null);
+    const [selectedUserDetailsUser, setSelectedUserDetailsUser] = useState(null);
+    const [newPasswordInput, setNewPasswordInput] = useState("");
+    const [userLeads, setUserLeads] = useState([]);
+    const [loadingUserLeads, setLoadingUserLeads] = useState(false);
 
     const loadUsers = async () => {
         try {
@@ -33,6 +40,29 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        const fetchUserLeads = async () => {
+            if (!selectedUserDetailsUser) {
+                setUserLeads([]);
+                return;
+            }
+
+            try {
+                setLoadingUserLeads(true);
+                const res = await axios.get(`${API_BASE}/leads?userId=${selectedUserDetailsUser._id}&limit=200`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                setUserLeads(res.data.leads || []);
+            } catch (err) {
+                console.error("Failed to load user leads:", err);
+            } finally {
+                setLoadingUserLeads(false);
+            }
+        };
+
+        fetchUserLeads();
+    }, [selectedUserDetailsUser, token]);
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -96,6 +126,58 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
             );
         } catch (err) {
             setError(err.response?.data?.message || "Failed to update user");
+        }
+    };
+
+    const handleDeleteUser = (user) => {
+        setDeleteConfirmUser(user);
+    };
+
+    const confirmDeleteUser = async (user) => {
+        try {
+            setMessage("");
+            setError("");
+            setDeleteConfirmUser(null);
+
+            await deleteUser(token, user._id);
+            setMessage("User deleted successfully");
+            setUsers((current) => current.filter((item) => item._id !== user._id));
+        } catch (err) {
+            setError(err.response?.data?.message || "Failed to delete user");
+        }
+    };
+
+    const handleResetUserPassword = async () => {
+        if (!newPasswordInput || newPasswordInput.length < 6) {
+            alert("Password must be at least 6 characters long");
+            return;
+        }
+
+        try {
+            setMessage("");
+            setError("");
+
+            const res = await updateUserPassword(token, selectedUserDetailsUser._id, newPasswordInput);
+            
+            // Update local users list
+            setUsers((current) =>
+                current.map((item) =>
+                    item._id === selectedUserDetailsUser._id
+                        ? { ...item, plaintextPassword: res.data.plaintextPassword }
+                        : item
+                )
+            );
+
+            // Update modal state
+            setSelectedUserDetailsUser((current) => ({
+                ...current,
+                plaintextPassword: res.data.plaintextPassword,
+            }));
+
+            setNewPasswordInput("");
+            alert("Password updated successfully!");
+        } catch (err) {
+            alert(err.response?.data?.message || "Failed to update password");
         }
     };
 
@@ -400,8 +482,8 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                                 <tbody>
                                     {users.map((user) => (
                                         <tr key={user._id} className="admin-user-row">
-                                            <td data-label="Name" style={S.td}>{user.name}</td>
-                                            <td data-label="Email" style={S.td}>{(user.email || "").toLowerCase()}</td>
+                                            <td data-label="Name" style={{ ...S.td, cursor: "pointer", fontWeight: "700", color: "#ff6b35" }} onClick={() => setSelectedUserDetailsUser(user)}>{user.name}</td>
+                                            <td data-label="Email" style={{ ...S.td, cursor: "pointer" }} onClick={() => setSelectedUserDetailsUser(user)}>{(user.email || "").toLowerCase()}</td>
                                             <td data-label="Role" style={{ ...S.td, textTransform: "capitalize" }}>{user.role}</td>
                                             <td data-label="Department" style={{ ...S.td, textTransform: "capitalize" }}>{user.department}</td>
                                             <td data-label="Permissions" style={{ ...S.td, position: "relative" }}>
@@ -424,23 +506,37 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                                                         </button>
 
                                                         {openPermissionsUserId === user._id && (
-                                                            <div style={S.permissionMenu} className="admin-permission-menu">
-                                                                <PermissionCheckbox
-                                                                    label="Scrape data"
-                                                                    checked={user.permissions?.canScrape ?? true}
-                                                                    onChange={(checked) => handlePermissionChange(user, "canScrape", checked)}
+                                                            <>
+                                                                <div
+                                                                    style={{
+                                                                        position: "fixed",
+                                                                        top: 0,
+                                                                        left: 0,
+                                                                        right: 0,
+                                                                        bottom: 0,
+                                                                        zIndex: 10,
+                                                                        background: "transparent",
+                                                                    }}
+                                                                    onClick={() => setOpenPermissionsUserId(null)}
                                                                 />
-                                                                <PermissionCheckbox
-                                                                    label="View leads"
-                                                                    checked={user.permissions?.canViewLeads ?? true}
-                                                                    onChange={(checked) => handlePermissionChange(user, "canViewLeads", checked)}
-                                                                />
-                                                                <PermissionCheckbox
-                                                                    label="Export CSV"
-                                                                    checked={user.permissions?.canExportCsv ?? true}
-                                                                    onChange={(checked) => handlePermissionChange(user, "canExportCsv", checked)}
-                                                                />
-                                                            </div>
+                                                                <div style={S.permissionMenu} className="admin-permission-menu">
+                                                                    <PermissionCheckbox
+                                                                        label="Scrape data"
+                                                                        checked={user.permissions?.canScrape ?? true}
+                                                                        onChange={(checked) => handlePermissionChange(user, "canScrape", checked)}
+                                                                    />
+                                                                    <PermissionCheckbox
+                                                                        label="View leads"
+                                                                        checked={user.permissions?.canViewLeads ?? true}
+                                                                        onChange={(checked) => handlePermissionChange(user, "canViewLeads", checked)}
+                                                                    />
+                                                                    <PermissionCheckbox
+                                                                        label="Export CSV"
+                                                                        checked={user.permissions?.canExportCsv ?? true}
+                                                                        onChange={(checked) => handlePermissionChange(user, "canExportCsv", checked)}
+                                                                    />
+                                                                </div>
+                                                            </>
                                                         )}
                                                     </>
                                                 )}
@@ -461,13 +557,27 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                                                 {user.role === "admin" ? (
                                                     <span style={S.muted}>Protected</span>
                                                 ) : (
-                                                    <button
-                                                        style={S.smallBtn}
-                                                        className="admin-action-button"
-                                                        onClick={() => handleToggleStatus(user)}
-                                                    >
-                                                        {user.isActive ? "Disable" : "Enable"}
-                                                    </button>
+                                                    <div style={{ display: "flex", gap: "6px" }}>
+                                                        <button
+                                                            style={S.smallBtn}
+                                                            className="admin-action-button"
+                                                            onClick={() => handleToggleStatus(user)}
+                                                        >
+                                                            {user.isActive ? "Disable" : "Enable"}
+                                                        </button>
+                                                        <button
+                                                            style={{
+                                                                ...S.smallBtn,
+                                                                background: "#fee2e2",
+                                                                color: "#b91c1c",
+                                                                borderColor: "#fca5a5"
+                                                            }}
+                                                            className="admin-action-button"
+                                                            onClick={() => handleDeleteUser(user)}
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </td>
                                         </tr>
@@ -478,6 +588,180 @@ export default function AdminDashboard({ token, goToLeads, handleLogout }) {
                     )}
                 </div>
             </div>
+            {deleteConfirmUser && (
+                <div style={S.modalOverlay}>
+                    <div style={S.modalContent}>
+                        <div style={S.modalIcon}>⚠️</div>
+                        <h3 style={S.modalTitle}>Delete User</h3>
+                        <p style={S.modalText}>
+                            Are you sure you want to permanently delete user <strong>{deleteConfirmUser.name}</strong>?
+                            This action cannot be undone and they will lose access.
+                        </p>
+                        <div style={S.modalActions}>
+                            <button style={S.modalCancelBtn} onClick={() => setDeleteConfirmUser(null)}>
+                                Cancel
+                            </button>
+                            <button
+                                style={S.modalConfirmBtn}
+                                onClick={() => {
+                                    confirmDeleteUser(deleteConfirmUser);
+                                }}
+                            >
+                                Delete User
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {selectedUserDetailsUser && (
+                <div style={S.modalOverlay}>
+                    <div style={{ ...S.modalContent, maxWidth: "960px", width: "95%", textAlign: "left" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+                            <h3 style={{ ...S.modalTitle, margin: 0 }}>User Metrics & Scraped Leads</h3>
+                            <button
+                                style={{
+                                    border: "none",
+                                    background: "transparent",
+                                    fontSize: "20px",
+                                    cursor: "pointer",
+                                    color: "#94a3b8"
+                                }}
+                                onClick={() => {
+                                    setSelectedUserDetailsUser(null);
+                                    setNewPasswordInput("");
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
+                            {/* Left Column: User Profile & Password */}
+                            <div style={{ flex: "1 1 300px", minWidth: "300px" }}>
+                                <h4 style={{ fontSize: "14px", fontWeight: "800", marginBottom: "12px", color: "#64748b", textTransform: "uppercase" }}>Account Profile</h4>
+                                
+                                <div style={S.detailRow}>
+                                    <span style={S.detailLabel}>Name:</span>
+                                    <span style={S.detailVal}>{selectedUserDetailsUser.name}</span>
+                                </div>
+                                <div style={S.detailRow}>
+                                    <span style={S.detailLabel}>Email:</span>
+                                    <span style={S.detailVal}>{selectedUserDetailsUser.email}</span>
+                                </div>
+                                <div style={S.detailRow}>
+                                    <span style={S.detailLabel}>Department:</span>
+                                    <span style={{ ...S.detailVal, textTransform: "capitalize" }}>{selectedUserDetailsUser.department}</span>
+                                </div>
+                                <div style={S.detailRow}>
+                                    <span style={S.detailLabel}>Role:</span>
+                                    <span style={{ ...S.detailVal, textTransform: "capitalize" }}>{selectedUserDetailsUser.role}</span>
+                                </div>
+                                <div style={S.detailRow}>
+                                    <span style={S.detailLabel}>Status:</span>
+                                    <span style={{
+                                        ...S.badge,
+                                        background: selectedUserDetailsUser.isActive ? "#dcfce7" : "#fee2e2",
+                                        color: selectedUserDetailsUser.isActive ? "#166534" : "#991b1b",
+                                        display: "inline-block",
+                                        padding: "3px 8px",
+                                        fontSize: "11px"
+                                    }}>
+                                        {selectedUserDetailsUser.isActive ? "Active" : "Disabled"}
+                                    </span>
+                                </div>
+                                <div style={{ ...S.detailRow, borderBottom: "2px solid #f1f5f9", paddingBottom: "14px", marginBottom: "14px" }}>
+                                    <span style={S.detailLabel}>Total Leads:</span>
+                                    <span style={{ ...S.detailVal, color: "#ff6b35", fontWeight: "800", fontSize: "16px" }}>
+                                        {selectedUserDetailsUser.leadCount ?? 0} leads
+                                    </span>
+                                </div>
+
+                                <div style={{ marginTop: "16px" }}>
+                                    <h4 style={{ fontSize: "14px", fontWeight: "800", marginBottom: "10px", color: "#64748b", textTransform: "uppercase" }}>Password Settings</h4>
+                                    <div style={S.detailRow}>
+                                        <span style={S.detailLabel}>Current Password:</span>
+                                        <span style={{ ...S.detailVal, fontFamily: "monospace", fontSize: "13px", background: "#f8fafc", padding: "4px 8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                                            {selectedUserDetailsUser.plaintextPassword || "Not Set / Encrypted"}
+                                        </span>
+                                    </div>
+
+                                    <div style={{ marginTop: "14px", display: "flex", gap: "8px", flexDirection: "column" }}>
+                                        <label style={{ fontSize: "11px", fontWeight: "800", color: "#64748b", textTransform: "uppercase" }}>Change Password</label>
+                                        <div style={{ display: "flex", gap: "8px" }}>
+                                            <input
+                                                type="text"
+                                                placeholder="New password (min 6 chars)"
+                                                value={newPasswordInput}
+                                                onChange={(e) => setNewPasswordInput(e.target.value)}
+                                                style={{ ...S.input, margin: 0, padding: "8px 12px", height: "38px" }}
+                                            />
+                                            <button
+                                                style={{ ...S.primaryBtn, width: "auto", padding: "0 16px", height: "38px" }}
+                                                onClick={handleResetUserPassword}
+                                            >
+                                                Update
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right Column: Scraped Leads list */}
+                            <div style={{ flex: "2 2 450px", minWidth: "300px", display: "flex", flexDirection: "column" }}>
+                                <h4 style={{ fontSize: "14px", fontWeight: "800", marginBottom: "12px", color: "#64748b", textTransform: "uppercase" }}>
+                                    Scraped Leads List ({userLeads.length})
+                                </h4>
+                                
+                                <div style={{
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: "12px",
+                                    maxHeight: "360px",
+                                    overflowY: "auto",
+                                    background: "#f8fafc"
+                                }}>
+                                    {loadingUserLeads ? (
+                                        <p style={{ padding: "20px", color: "#64748b", fontSize: "13px" }}>Loading user leads...</p>
+                                    ) : userLeads.length === 0 ? (
+                                        <p style={{ padding: "20px", color: "#64748b", fontSize: "13px" }}>No leads scraped by this user yet.</p>
+                                    ) : (
+                                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                                            <thead>
+                                                <tr style={{ background: "#f1f5f9", position: "sticky", top: 0, zIndex: 1 }}>
+                                                    <th style={{ ...S.th, padding: "8px 12px" }}>Business</th>
+                                                    <th style={{ ...S.th, padding: "8px 12px" }}>Phone</th>
+                                                    <th style={{ ...S.th, padding: "8px 12px" }}>Email</th>
+                                                    <th style={{ ...S.th, padding: "8px 12px" }}>Website</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {userLeads.map((lead, idx) => (
+                                                    <tr key={lead._id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: "#ffffff" }}>
+                                                        <td style={{ padding: "8px 12px", fontWeight: "600", color: "#0f172a" }}>{lead.name}</td>
+                                                        <td style={{ padding: "8px 12px", color: "#475569" }}>{lead.phone || "—"}</td>
+                                                        <td style={{ padding: "8px 12px", color: "#059669", fontWeight: "600" }}>{lead.email || "—"}</td>
+                                                        <td style={{ padding: "8px 12px" }}>
+                                                            {lead.website ? (
+                                                                <a
+                                                                    href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    style={{ color: "#ff6b35", textDecoration: "none", fontWeight: "600" }}
+                                                                >
+                                                                    Website ↗
+                                                                </a>
+                                                            ) : "—"}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -526,10 +810,11 @@ const S = {
         fontSize: "32px",
         fontWeight: "800",
         margin: 0,
+        color: "#0f172a",
     },
 
     sub: {
-        color: "#64748b",
+        color: "#475569",
         marginTop: "6px",
     },
 
@@ -550,6 +835,7 @@ const S = {
         border: "1px solid #e2e8f0",
         borderRadius: "16px",
         padding: "20px",
+        boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05)",
     },
 
     statValue: {
@@ -560,8 +846,9 @@ const S = {
 
     statTitle: {
         fontSize: "13px",
-        color: "#64748b",
+        color: "#475569",
         marginTop: "6px",
+        fontWeight: "600",
     },
 
     grid: {
@@ -575,15 +862,17 @@ const S = {
         background: "#ffffff",
         border: "1px solid #e2e8f0",
         borderRadius: "18px",
-        padding: "18px",
+        padding: "20px",
         boxSizing: "border-box",
         minWidth: 0,
+        boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05)",
     },
 
     cardTitle: {
         fontSize: "20px",
         fontWeight: "800",
         marginBottom: "16px",
+        color: "#0f172a",
     },
 
     input: {
@@ -595,6 +884,8 @@ const S = {
         marginBottom: "12px",
         outline: "none",
         fontSize: "14px",
+        background: "#ffffff",
+        color: "#0f172a",
     },
 
     primaryBtn: {
@@ -607,6 +898,7 @@ const S = {
         color: "#ffffff",
         fontWeight: "800",
         cursor: "pointer",
+        transition: "opacity 0.2s",
     },
 
     secondaryBtn: {
@@ -630,7 +922,7 @@ const S = {
     },
 
     tableWrap: {
-        overflowX: "visible",
+        overflowX: "auto",
         maxWidth: "100%",
     },
 
@@ -654,8 +946,8 @@ const S = {
     permissionCheck: {
         display: "flex",
         alignItems: "center",
-        gap: "7px",
-        color: "#475569",
+        gap: "8px",
+        color: "#334155",
         fontSize: "12px",
         fontWeight: "700",
         marginBottom: "7px",
@@ -678,10 +970,10 @@ const S = {
         gap: "8px",
         minWidth: "104px",
         padding: "8px 10px",
-        border: "1px solid #e2e8f0",
+        border: "1px solid #cbd5e1",
         borderRadius: "9px",
         background: "#ffffff",
-        color: "#475569",
+        color: "#334155",
         fontSize: "12px",
         fontWeight: "800",
         cursor: "pointer",
@@ -720,13 +1012,16 @@ const S = {
         borderBottom: "1px solid #e2e8f0",
         textTransform: "uppercase",
         fontSize: "11px",
+        fontWeight: "700",
+        whiteSpace: "nowrap",
     },
 
     td: {
         padding: "10px 8px",
         borderBottom: "1px solid #f1f5f9",
         color: "#334155",
-        wordBreak: "break-word",
+        wordBreak: "keep-all",
+        whiteSpace: "nowrap",
     },
 
     badge: {
@@ -741,8 +1036,10 @@ const S = {
         border: "1px solid #cbd5e1",
         borderRadius: "8px",
         background: "#ffffff",
+        color: "#0f172a",
         cursor: "pointer",
         fontWeight: "700",
+        whiteSpace: "nowrap",
     },
 
     error: {
@@ -766,5 +1063,98 @@ const S = {
     muted: {
         color: "#94a3b8",
         fontSize: "13px",
+    },
+
+    modalOverlay: {
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(15, 23, 42, 0.4)",
+        backdropFilter: "blur(4px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+        padding: "20px",
+    },
+
+    modalContent: {
+        background: "#ffffff",
+        borderRadius: "20px",
+        padding: "24px",
+        width: "100%",
+        maxWidth: "400px",
+        boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+        textAlign: "center",
+        color: "#0f172a",
+        border: "1px solid #e2e8f0",
+    },
+
+    modalIcon: {
+        fontSize: "36px",
+        marginBottom: "12px",
+    },
+
+    modalTitle: {
+        fontSize: "20px",
+        fontWeight: "800",
+        margin: "0 0 8px 0",
+        color: "#0f172a",
+    },
+
+    modalText: {
+        fontSize: "14px",
+        color: "#475569",
+        lineHeight: "1.5",
+        margin: "0 0 20px 0",
+    },
+
+    modalActions: {
+        display: "flex",
+        gap: "10px",
+        justifyContent: "center",
+    },
+
+    modalCancelBtn: {
+        padding: "10px 18px",
+        border: "1px solid #cbd5e1",
+        borderRadius: "10px",
+        background: "#ffffff",
+        color: "#0f172a",
+        fontWeight: "700",
+        cursor: "pointer",
+        fontSize: "14px",
+    },
+
+    modalConfirmBtn: {
+        padding: "10px 18px",
+        border: "none",
+        borderRadius: "10px",
+        background: "#dc2626",
+        color: "#ffffff",
+        fontWeight: "700",
+        cursor: "pointer",
+        fontSize: "14px",
+    },
+
+    detailRow: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "8px 0",
+        borderBottom: "1px solid #f1f5f9",
+        fontSize: "13px",
+    },
+
+    detailLabel: {
+        fontWeight: "600",
+        color: "#64748b",
+    },
+
+    detailVal: {
+        fontWeight: "700",
+        color: "#0f172a",
     },
 };

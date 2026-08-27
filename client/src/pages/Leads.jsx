@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getLeads, exportLeadsCsv } from "../api/leadsApi";
+import { getUsers } from "../api/usersApi";
 
 export default function Leads({ token, authUser }) {
     const [leads, setLeads] = useState([]);
@@ -25,7 +26,9 @@ export default function Leads({ token, authUser }) {
         hasPhone: false,
         hasEmail: false,
         hasWebsite: false,
+        userId: "",
     });
+    const [userOptions, setUserOptions] = useState([]);
     const PAGE_SIZE = 50;
 
     const canExportCsv = authUser?.role === "admin" && authUser?.department === "admin"
@@ -44,13 +47,28 @@ export default function Leads({ token, authUser }) {
         filters.dateTo ||
         filters.hasPhone ||
         filters.hasEmail ||
-        filters.hasWebsite
+        filters.hasWebsite ||
+        filters.userId
     );
 
     const totalShowing = pagination.total === 0
         ? 0
         : Math.min((pagination.page - 1) * pagination.limit + leads.length, pagination.total);
     const startEntry = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
+
+    const isAdmin = authUser?.role === "admin" && authUser?.department === "admin";
+
+    useEffect(() => {
+        if (isAdmin) {
+            getUsers(token)
+                .then((res) => {
+                    setUserOptions(res.data.users || []);
+                })
+                .catch((err) => {
+                    console.error("Failed to load users for filter:", err);
+                });
+        }
+    }, [token, isAdmin]);
 
     const getLeadId = (lead) => lead._id || lead.id;
     const ratingValue = (rating) => {
@@ -152,6 +170,7 @@ export default function Leads({ token, authUser }) {
         hasPhone: filters.hasPhone,
         hasEmail: filters.hasEmail,
         hasWebsite: filters.hasWebsite,
+        userId: filters.userId,
     });
 
     const loadLeads = async (page = 1) => {
@@ -194,6 +213,7 @@ export default function Leads({ token, authUser }) {
         filters.hasPhone,
         filters.hasEmail,
         filters.hasWebsite,
+        filters.userId,
     ]);
 
     // Filtering is now done by MongoDB before pagination.
@@ -272,6 +292,7 @@ export default function Leads({ token, authUser }) {
             hasPhone: false,
             hasEmail: false,
             hasWebsite: false,
+            userId: "",
         });
     };
 
@@ -734,6 +755,20 @@ export default function Leads({ token, authUser }) {
                                     <option value="4">4+ stars</option>
                                     <option value="4.5">4.5+ stars</option>
                                 </select>
+                                {isAdmin && (
+                                    <select
+                                        style={{ ...S.filterInput, width: "160px" }}
+                                        value={filters.userId}
+                                        onChange={(e) => updateFilter("userId", e.target.value)}
+                                    >
+                                        <option value="">All Users' Leads</option>
+                                        {userOptions.map((u) => (
+                                            <option key={u._id} value={u._id}>
+                                                {u.name} ({u.leadCount ?? 0} leads)
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
                                 <div style={{ ...S.dateRangeWrap, minWidth: "220px" }}>
                                     <button
                                         type="button"
@@ -859,31 +894,31 @@ export default function Leads({ token, authUser }) {
                                 </div>
                                 <div style={{ display: "flex", gap: "12px", marginLeft: "auto" }}>
                                     <button style={S.lightBtn} onClick={clearFilters}>Clear Filters</button>
-                                {canExportCsv && (
-                                    <button
-                                        style={{
-                                            ...S.exportBtn,
-                                            opacity: exportButtonDisabled ? 0.45 : 1,
-                                            cursor: exportButtonDisabled ? "not-allowed" : "pointer",
-                                        }}
-                                        className="leads-export-btn"
-                                        onClick={handleExportCsv}
-                                        disabled={exportButtonDisabled}
-                                        title={
-                                            selectedLeads.length > 0
-                                                ? "Export selected leads"
-                                                : hasActiveFilters
-                                                    ? "Export all leads matching the current filters"
-                                                    : "Select leads first, or apply filters to export all matching leads"
-                                        }
-                                    >
-                                        {exportButtonLabel}
-                                    </button>
-                                )}
+                                    {canExportCsv && (
+                                        <button
+                                            style={{
+                                                ...S.exportBtn,
+                                                opacity: exportButtonDisabled ? 0.45 : 1,
+                                                cursor: exportButtonDisabled ? "not-allowed" : "pointer",
+                                            }}
+                                            className="leads-export-btn"
+                                            onClick={handleExportCsv}
+                                            disabled={exportButtonDisabled}
+                                            title={
+                                                selectedLeads.length > 0
+                                                    ? "Export selected leads"
+                                                    : hasActiveFilters
+                                                        ? "Export all leads matching the current filters"
+                                                        : "Select leads first, or apply filters to export all matching leads"
+                                            }
+                                        >
+                                            {exportButtonLabel}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                        </div>
 
-                        <div style={S.filterMeta}>
+                            <div style={S.filterMeta}>
                                 Showing {leads.length} of {pagination.total.toLocaleString()} matching leads
                             </div>
                         </div>

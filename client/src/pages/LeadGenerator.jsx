@@ -77,6 +77,52 @@ export default function LeadGenerator({ authUser, token }) {
     // Reset page when filters change
     useEffect(() => { setPage(1); }, [filterRating, filterHasEmail, filterHasPhone, filterHasWebsite, filterLocation, sortBy]);
 
+    // ── Screen Wake Lock to prevent screen sleep during scraping ─────────────────
+    useEffect(() => {
+        let wakeLock = null;
+
+        const requestWakeLock = async () => {
+            if ('wakeLock' in navigator && loading) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log("Screen Wake Lock acquired successfully.");
+                } catch (err) {
+                    console.warn("Failed to acquire Screen Wake Lock:", err.message);
+                }
+            }
+        };
+
+        const releaseWakeLock = async () => {
+            if (wakeLock) {
+                try {
+                    await wakeLock.release();
+                    wakeLock = null;
+                    console.log("Screen Wake Lock released.");
+                } catch (err) {
+                    console.error("Error releasing Screen Wake Lock:", err.message);
+                }
+            }
+        };
+
+        if (loading) {
+            requestWakeLock();
+        }
+
+        // Re-acquire lock if tab becomes visible again
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && loading) {
+                requestWakeLock();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            releaseWakeLock();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [loading]);
+
     // ── Load Leaflet ────────────────────────────────────────────────────────────
     useEffect(() => {
         if (view !== "map" || leafletReady) return;
@@ -307,81 +353,81 @@ export default function LeadGenerator({ authUser, token }) {
                             <div style={S.inputBox}>
                                 <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none">
                                     <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2" />
-                                <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
-                            </svg>
-                            <input
-                                style={S.input}
-                                className="premium-input"
-                                placeholder="e.g. software companies"
-                                value={keyword}
-                                onChange={e => { setKeyword(e.target.value); setShowKeywordSuggestions(true); }}
-                                onFocus={() => setShowKeywordSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowKeywordSuggestions(false), 150)}
-                                onKeyDown={e => e.key === "Enter" && handleSearch()}
-                                disabled={loading}
-                            />
-                        </div>
-                        {showKeywordSuggestions && (
-                            <div style={S.suggestions}>
-                                {SUGGESTED_KEYWORDS.filter(k => k.toLowerCase().includes(keyword.toLowerCase()) && k.toLowerCase() !== keyword.toLowerCase())
-                                    .slice(0, 6).map(k => (
-                                        <div key={k} style={S.suggItem} onMouseDown={() => { setKeyword(k); setShowKeywordSuggestions(false); }}>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                                                <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2" />
-                                                <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
-                                            </svg>
-                                            {k}
-                                        </div>
-                                    ))}
+                                    <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
+                                </svg>
+                                <input
+                                    style={S.input}
+                                    className="premium-input"
+                                    placeholder="e.g. software companies"
+                                    value={keyword}
+                                    onChange={e => { setKeyword(e.target.value); setShowKeywordSuggestions(true); }}
+                                    onFocus={() => setShowKeywordSuggestions(true)}
+                                    onBlur={() => setTimeout(() => setShowKeywordSuggestions(false), 150)}
+                                    onKeyDown={e => e.key === "Enter" && handleSearch()}
+                                    disabled={loading}
+                                />
                             </div>
-                        )}
+                            {showKeywordSuggestions && (
+                                <div style={S.suggestions}>
+                                    {SUGGESTED_KEYWORDS.filter(k => k.toLowerCase().includes(keyword.toLowerCase()) && k.toLowerCase() !== keyword.toLowerCase())
+                                        .slice(0, 6).map(k => (
+                                            <div key={k} style={S.suggItem} onMouseDown={() => { setKeyword(k); setShowKeywordSuggestions(false); }}>
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                                                    <circle cx="11" cy="11" r="7" stroke="#94a3b8" strokeWidth="2" />
+                                                    <path d="M21 21l-4.35-4.35" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
+                                                </svg>
+                                                {k}
+                                            </div>
+                                        ))}
+                                </div>
+                            )}
                         </div>
 
                         {/* Limit input */}
                         <div style={{ ...S.fieldWrap, width: "140px" }}>
                             <label style={S.label}>Max Results</label>
                             <div style={S.inputBox}>
-                            <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <line x1="8" y1="6" x2="21" y2="6"></line>
-                                <line x1="8" y1="12" x2="21" y2="12"></line>
-                                <line x1="8" y1="18" x2="21" y2="18"></line>
-                                <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                                <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                                <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                            </svg>
-                            <select
-                                style={S.selectInput}
-                                className="premium-select"
-                                value={limit}
-                                onChange={e => setLimit(parseInt(e.target.value, 10))}
-                                disabled={loading}
-                            >
-                                <option value={5}>5 leads (Fast)</option>
-                                <option value={10}>10 leads</option>
-                                <option value={20}>20 leads</option>
-                                <option value={30}>30 leads</option>
-                                <option value={50}>50 leads</option>
-                                <option value={100}>100 leads</option>
-                                <option value={200}>200 leads</option>
-                                <option value={500}>500 leads</option>
-                            </select>
-                            {/* Custom dropdown arrow */}
-                            <div style={{
-                                position: "absolute",
-                                right: "12px",
-                                top: "50%",
-                                transform: "translateY(-50%)",
-                                pointerEvents: "none",
-                                color: "#94a3b8",
-                                display: "flex",
-                                alignItems: "center"
-                            }}>
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                <svg style={S.inputIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="8" y1="6" x2="21" y2="6"></line>
+                                    <line x1="8" y1="12" x2="21" y2="12"></line>
+                                    <line x1="8" y1="18" x2="21" y2="18"></line>
+                                    <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                                    <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                                    <line x1="3" y1="18" x2="3.01" y2="18"></line>
                                 </svg>
+                                <select
+                                    style={S.selectInput}
+                                    className="premium-select"
+                                    value={limit}
+                                    onChange={e => setLimit(parseInt(e.target.value, 10))}
+                                    disabled={loading}
+                                >
+                                    <option value={5}>5 leads (Fast)</option>
+                                    <option value={10}>10 leads</option>
+                                    <option value={20}>20 leads</option>
+                                    <option value={30}>30 leads</option>
+                                    <option value={50}>50 leads</option>
+                                    <option value={100}>100 leads</option>
+                                    <option value={200}>200 leads</option>
+                                    <option value={500}>500 leads</option>
+                                </select>
+                                {/* Custom dropdown arrow */}
+                                <div style={{
+                                    position: "absolute",
+                                    right: "12px",
+                                    top: "50%",
+                                    transform: "translateY(-50%)",
+                                    pointerEvents: "none",
+                                    color: "#94a3b8",
+                                    display: "flex",
+                                    alignItems: "center"
+                                }}>
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                    </svg>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
                         {/* Search button */}
                         <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "42px" }}>
